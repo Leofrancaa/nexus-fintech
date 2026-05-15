@@ -48,9 +48,9 @@ export const getUserData = async () => {
 }
 
 // Helper genérico para requisições autenticadas (cookies enviados automaticamente)
+// endpoint deve ser o path completo, ex: "/api/expenses"
 export const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
-  const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint}`
-  const response = await fetch(url, {
+  const response = await fetch(endpoint, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
