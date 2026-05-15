@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RightShowcase } from "@/components/rightShowCase";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_URL = "/api";
 
 function ResetPasswordForm() {
   const [novaSenha, setNovaSenha] = useState("");

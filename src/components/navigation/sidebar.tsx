@@ -46,8 +46,8 @@ export function Sidebar() {
   const toggleSidebar = () => setIsOpen((prev) => !prev);
   const toggleMobile = () => setIsMobileOpen((prev) => !prev);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     router.push("/login");
   };
 
@@ -56,12 +56,12 @@ export function Sidebar() {
   }, [isMobileOpen]);
 
   useEffect(() => {
-    const user = getUserData();
-    if (user && user.nome) {
-      // Pegar apenas o primeiro nome
-      const firstName = user.nome.split(" ")[0];
-      setUserName(firstName);
-    }
+    getUserData().then((user) => {
+      if (user && user.nome) {
+        const firstName = user.nome.split(" ")[0];
+        setUserName(firstName);
+      }
+    });
   }, []);
 
   return (

@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Wallet } from "lucide-react";
-import { apiRequest, tokenManager } from "@/lib/auth";
+import { apiRequest } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
 
@@ -44,18 +44,6 @@ export function DashboardCards({ customMonth, customYear, refreshKey }: Props) {
       try {
         setLoading(true);
 
-        // Verificar se há token antes de fazer as requisições
-        const token = tokenManager.get();
-        if (!token) {
-          console.error("Token não encontrado");
-          router.push("/login");
-          return;
-        }
-
-        console.log(
-          "Fazendo requisições do dashboard com token:",
-          token ? "presente" : "ausente"
-        );
 
         // Fazer todas as requisições em paralelo
         const [incomeRes, expenseRes] = await Promise.all([
@@ -106,12 +94,10 @@ export function DashboardCards({ customMonth, customYear, refreshKey }: Props) {
             err.message.includes("401")
           ) {
             // Token expirado ou inválido
-            tokenManager.remove();
             router.push("/login");
             toast.error("Sessão expirada. Faça login novamente.");
           } else if (err.message.includes("403")) {
             // Token inválido
-            tokenManager.remove();
             router.push("/login");
             toast.error("Acesso não autorizado. Faça login novamente.");
           } else {

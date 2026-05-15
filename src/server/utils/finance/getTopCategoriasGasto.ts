@@ -1,0 +1,32 @@
+// @ts-nocheck
+import prisma from '@/server/db/prisma'
+
+export interface TopCategoriasResult {
+    nome: string
+    total: number
+}
+
+interface RawRow {
+    nome: string
+    total: string | number
+}
+
+export const getTopCategoriasGasto = async (
+    user_id: number,
+    mes: number,
+    ano: number
+): Promise<TopCategoriasResult[]> => {
+    const rows = await prisma.$queryRaw<RawRow[]>`
+        SELECT c.nome, SUM(e.quantidade) AS total
+        FROM expenses e
+        JOIN categories c ON e.category_id = c.id
+        WHERE e.user_id = ${user_id}
+        AND EXTRACT(MONTH FROM e.data) = ${mes}
+        AND EXTRACT(YEAR FROM e.data) = ${ano}
+        GROUP BY c.nome
+        ORDER BY total DESC
+        LIMIT 5
+    `
+
+    return rows.map(row => ({ nome: row.nome, total: Number(row.total) }))
+}

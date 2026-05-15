@@ -1,54 +1,50 @@
-// middleware.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server'
+import { jwtVerify } from 'jose'
 
 const PROTECTED_ROUTES = [
-    "/categorias",
-    "/cartoes",
-    "/limites",
-    "/receitas",
-    "/despesas",
-    "/investimentos",
-    "/dashboard"
-];
+  '/categorias', '/cartoes', '/limites', '/receitas',
+  '/despesas', '/investimentos', '/dashboard', '/planos',
+  '/configuracoes', '/manual'
+]
+const PUBLIC_ROUTES = ['/login', '/register', '/forgot-password', '/reset-password']
+const COOKIE_NAME = 'nexus_token'
 
-const PUBLIC_ROUTES = ["/login", "/register"];
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  const token = request.cookies.get(COOKIE_NAME)?.value
 
-export function middleware(request: NextRequest) {
-    const path = request.nextUrl.pathname;
+  const isProtected = PROTECTED_ROUTES.some(r => pathname.startsWith(r))
+  const isPublic = PUBLIC_ROUTES.some(r => pathname.startsWith(r))
 
-    // Verificar se é uma rota protegida
-    const isProtectedRoute = PROTECTED_ROUTES.some((route) =>
-        path.startsWith(route)
-    );
-
-    const isPublicRoute = PUBLIC_ROUTES.includes(path);
-
-    // Para rotas protegidas, adicionar header personalizado
-    if (isProtectedRoute) {
-        const response = NextResponse.next();
-        response.headers.set('x-protected-route', 'true');
-        return response;
+  let isValidToken = false
+  if (token) {
+    try {
+      await jwtVerify(token, new TextEncoder().encode(process.env.JWT_SECRET))
+      isValidToken = true
+    } catch {
+      isValidToken = false
     }
+  }
 
-    // Rota raiz: redirecionar para login (AuthGuard vai lidar com a autenticação)
-    if (path === '/') {
-        return NextResponse.redirect(new URL('/login', request.url));
-    }
+  if (isProtected && !isValidToken) {
+    const response = NextResponse.redirect(new URL('/login', request.url))
+    if (token) response.cookies.delete(COOKIE_NAME)
+    return response
+  }
 
-    return NextResponse.next();
+  if (isPublic && isValidToken) {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  if (pathname === '/') {
+    return NextResponse.redirect(new URL(isValidToken ? '/dashboard' : '/login', request.url))
+  }
+
+  return NextResponse.next()
 }
 
 export const config = {
-    matcher: [
-        "/categorias/:path*",
-        "/cartoes/:path*",
-        "/limites/:path*",
-        "/receitas/:path*",
-        "/despesas/:path*",
-        "/investimentos/:path*",
-        "/dashboard/:path*",
-        "/login",
-        "/register",
-        "/"
-    ],
-};
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|icons|manifest.json|offline.html|public).*)',
+  ],
+}

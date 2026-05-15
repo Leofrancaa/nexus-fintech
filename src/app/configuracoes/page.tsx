@@ -16,10 +16,10 @@ import {
   Trash2,
   Shield,
 } from "lucide-react";
-import { tokenManager, getUserData } from "@/lib/auth";
+import { getUserData } from "@/lib/auth";
 import { toast } from "react-hot-toast";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_URL = "/api";
 const ADMIN_EMAIL = "nexusfintool1962@gmail.com";
 
 type InviteCode = {
@@ -71,10 +71,11 @@ export default function ConfiguracoesPage() {
 
   // Verificar se é admin
   useEffect(() => {
-    const user = getUserData();
-    if (user && user.email === ADMIN_EMAIL) {
-      setIsAdmin(true);
-    }
+    getUserData().then((user) => {
+      if (user && user.email === ADMIN_EMAIL) {
+        setIsAdmin(true);
+      }
+    });
   }, []);
 
   // Carregar dados admin
@@ -89,12 +90,7 @@ export default function ConfiguracoesPage() {
 
   const loadInviteCodes = async () => {
     try {
-      const token = tokenManager.get();
-      const response = await fetch(`${API_URL}/api/invite-codes`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await fetch(`${API_URL}/invite-codes`);
 
       if (response.ok) {
         const data = await response.json();
@@ -108,14 +104,7 @@ export default function ConfiguracoesPage() {
   const loadUsers = async () => {
     console.log("🔍 loadUsers: Iniciando carregamento de usuários...");
     try {
-      const token = tokenManager.get();
-      console.log("🔍 loadUsers: Token obtido:", token ? "Presente" : "Ausente");
-
-      const response = await fetch(`${API_URL}/api/admin/users`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await fetch(`${API_URL}/admin/users`);
 
       console.log("🔍 loadUsers: Status da resposta:", response.status);
 
@@ -136,18 +125,14 @@ export default function ConfiguracoesPage() {
   const handleGenerateCode = async () => {
     setLoadingAdmin(true);
     try {
-      const token = tokenManager.get();
       const body: { expiresInDays?: number } = {};
       if (expiresInDays) {
         body.expiresInDays = parseInt(expiresInDays);
       }
 
-      const response = await fetch(`${API_URL}/api/invite-codes`, {
+      const response = await fetch(`${API_URL}/invite-codes`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 
@@ -175,12 +160,8 @@ export default function ConfiguracoesPage() {
     if (!confirm("Deseja realmente deletar este código?")) return;
 
     try {
-      const token = tokenManager.get();
-      const response = await fetch(`${API_URL}/api/invite-codes/${id}`, {
+      const response = await fetch(`${API_URL}/invite-codes/${id}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
       });
 
       if (response.ok) {
@@ -226,23 +207,9 @@ export default function ConfiguracoesPage() {
     setLoading(true);
 
     try {
-      const token = tokenManager.get();
-
-      if (!token) {
-        setMessage({
-          type: "error",
-          text: "Sessão expirada. Faça login novamente.",
-        });
-        setLoading(false);
-        return;
-      }
-
       const response = await fetch(`${API_URL}/auth/change-password`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senhaAtual, novaSenha }),
       });
 
