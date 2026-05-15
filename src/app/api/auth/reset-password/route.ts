@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json({ success: true, message: 'Senha redefinida com sucesso. Você já pode fazer login.' })
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Erro ao redefinir senha.' }, { status: 500 })
   }
 }

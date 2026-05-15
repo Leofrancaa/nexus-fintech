@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 import { formatDate } from '@/server/utils/helper'
 
@@ -31,7 +30,7 @@ export const getParcelasPendentes = async (user_id: number): Promise<ParcelasPen
         },
     })
 
-    return expenses.map(e => ({
+    return expenses.map((e: typeof expenses[number]) => ({
         id: e.id,
         metodo_pagamento: e.metodo_pagamento,
         tipo: e.tipo,

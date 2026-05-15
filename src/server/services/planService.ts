@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Prisma } from '@prisma/client'
 import prisma from '@/server/db/prisma'
 import {
@@ -88,12 +87,12 @@ export class PlanService {
             if (plans.length === 0) return []
 
             return await Promise.all(
-                plans.map(async (plan) => {
+                plans.map(async (plan: typeof plans[number]) => {
                     try {
-                        return await this.calculatePlanProgress(plan)
+                        return await this.calculatePlanProgress(plan as unknown as Record<string, unknown>)
                     } catch {
                         return {
-                            ...this.mapToPlan(plan),
+                            ...this.mapToPlan(plan as unknown as Record<string, unknown>),
                             progresso: 0,
                             dias_restantes: 0,
                             is_completed: false,
@@ -105,7 +104,7 @@ export class PlanService {
                     }
                 })
             )
-        } catch (error) {
+        } catch {
             throw createErrorResponse('Erro ao buscar planos do usuário.', 500)
         }
     }
@@ -277,9 +276,9 @@ export class PlanService {
                 take: limit,
             })
 
-            return contributions.map(c => ({ ...c, valor: Number(c.valor) }))
-        } catch (error) {
-            throw error
+            return contributions.map((c: typeof contributions[number]) => ({ ...c, valor: Number(c.valor) }))
+        } catch (e) {
+            throw e
         }
     }
 

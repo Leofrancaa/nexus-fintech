@@ -75,7 +75,7 @@ export const sendPasswordResetEmail = async (
 
     try {
         await transporter.sendMail(mailOptions)
-    } catch (error) {
+    } catch {
         throw new Error('Erro ao enviar email de recuperação de senha')
     }
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 
 interface MensalRow {
@@ -28,7 +27,7 @@ export const getTotaisMensais = async (user_id: number): Promise<TotaisMensaisRe
     ])
 
     return {
-        receitas: receitas.map(r => ({ mes: Number(r.mes), total: Number(r.total) })),
-        despesas: despesas.map(d => ({ mes: Number(d.mes), total: Number(d.total) })),
+        receitas: receitas.map((r: MensalRow) => ({ mes: Number(r.mes), total: Number(r.total) })),
+        despesas: despesas.map((d: MensalRow) => ({ mes: Number(d.mes), total: Number(d.total) })),
     }
 }

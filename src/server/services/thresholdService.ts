@@ -1,9 +1,7 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 import {
     Threshold,
     CreateThresholdRequest,
-    Category
 } from '@/server/types/index'
 import {
     createErrorResponse,
@@ -70,7 +68,7 @@ export class ThresholdService {
             orderBy: { category_id: 'asc' }
         })
 
-        return thresholds.map(t => ({
+        return thresholds.map((t: typeof thresholds[number]) => ({
             id: t.id,
             user_id: t.user_id,
             category_id: t.category_id,
@@ -188,7 +186,7 @@ export class ThresholdService {
             ORDER BY c.nome
         `
 
-        return result.map(row => {
+        return result.map((row: { threshold_id: number; limit_value: string; category_name: string; category_color: string; current_spending: string }) => {
             const limitValue = Number(row.limit_value)
             const currentSpending = Number(row.current_spending)
             const percentageUsed = limitValue > 0 ? (currentSpending / limitValue) * 100 : 0

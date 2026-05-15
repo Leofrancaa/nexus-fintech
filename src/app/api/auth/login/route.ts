@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'E-mail ou senha incorretos.' }, { status: 401 })
     }
 
-    const { senha: _, ...userWithoutPassword } = user
+    const userWithoutPassword = { id: user.id, nome: user.nome, email: user.email, currency: user.currency, created_at: user.created_at, updated_at: user.updated_at }
     const token = createToken({ id: user.id, nome: user.nome, email: user.email })
 
     const response = NextResponse.json({
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     setAuthFlagCookie(response)
 
     return response
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Erro ao fazer login.' }, { status: 500 })
   }
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 import { Prisma } from '@prisma/client'
 import {
@@ -331,7 +330,7 @@ export class ExpenseService {
             ORDER BY e.data DESC
         `
 
-        return result.map(row => ({
+        return result.map((row: Record<string, unknown>) => ({
             ...row,
             quantidade: Number(row.quantidade),
             data: row.data instanceof Date ? formatDate(row.data as Date) : row.data,
@@ -355,8 +354,8 @@ export class ExpenseService {
             orderBy: { data: 'desc' }
         })
 
-        return expenses.map(e => ({
-            ...this.mapToExpense(e),
+        return expenses.map((e: typeof expenses[number]) => ({
+            ...this.mapToExpense(e as unknown as Record<string, unknown>),
             category_id: e.category_id ?? undefined,
             categoria_nome: e.category?.nome,
             cor_categoria: e.category?.cor,
@@ -458,9 +457,9 @@ export class ExpenseService {
             ORDER BY total DESC
         `
 
-        const totalGeral = result.reduce((acc, r) => acc + Number(r.total), 0)
+        const totalGeral = result.reduce((acc: number, r: { id: number; nome: string; cor: string; quantidade: string; total: string }) => acc + Number(r.total), 0)
 
-        return result.map(row => ({
+        return result.map((row: { id: number; nome: string; cor: string; quantidade: string; total: string }) => ({
             id: row.id,
             nome: row.nome,
             cor: row.cor,

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 import { createErrorResponse } from '@/server/utils/helper'
 
@@ -170,14 +169,14 @@ export class BalanceCarryoverService {
         ])
 
         const result = [
-            ...incomes.map(i => ({
+            ...incomes.map((i: { data: Date; quantidade: unknown; created_at: Date }) => ({
                 mes: i.data.getMonth() + 1,
                 ano: i.data.getFullYear(),
                 saldo: Number(i.quantidade),
                 tipo: 'positivo' as const,
                 applied_at: i.created_at,
             })),
-            ...expenses.map(e => ({
+            ...expenses.map((e: { data: Date; quantidade: unknown; created_at: Date }) => ({
                 mes: e.data.getMonth() + 1,
                 ano: e.data.getFullYear(),
                 saldo: -Number(e.quantidade),

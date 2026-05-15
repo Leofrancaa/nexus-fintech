@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json({ success: true, message: 'Senha alterada com sucesso.' })
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Erro ao alterar senha.' }, { status: 500 })
   }
 }

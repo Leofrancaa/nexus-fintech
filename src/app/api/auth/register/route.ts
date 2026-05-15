@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     setAuthFlagCookie(response)
 
     return response
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Erro ao registrar usuário.' }, { status: 500 })
   }
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Prisma } from '@prisma/client'
 import prisma from '@/server/db/prisma'
 import {
@@ -93,7 +92,7 @@ export class CardService {
             ORDER BY c.id DESC
         `
 
-        return result.map(card => {
+        return result.map((card: Record<string, unknown>) => {
             const limite = Number(card.limite)
             const gastoTotal = Number(card.gasto_total)
             const limiteDisponivel = Number(card.limite_disponivel)
@@ -298,7 +297,7 @@ export class CardService {
             ORDER BY competencia_ano ASC, competencia_mes ASC
         `
 
-        return result.map(r => ({
+        return result.map((r: { id: number; tipo: string; quantidade: string; competencia_mes: number; competencia_ano: number; parcelas: number; observacoes: string | null }) => ({
             ...r,
             quantidade: Number(r.quantidade),
         }))

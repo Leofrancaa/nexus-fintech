@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 
 export interface CartoesEstouradosResult {
@@ -22,7 +21,7 @@ export const getCartoesEstourados = async (user_id: number): Promise<CartoesEsto
         GROUP BY c.id, c.nome, c.limite
     `
 
-    return rows.map(row => ({
+    return rows.map((row: RawRow) => ({
         id: row.id,
         nome: row.nome,
         limite: Number(row.limite),

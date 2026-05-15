@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 
 export interface ResumoAnualResult {
@@ -32,8 +31,8 @@ export const getResumoAnual = async (user_id: number, ano: number): Promise<Resu
     const receitasMap = new Map<number, number>()
     const despesasMap = new Map<number, number>()
 
-    receitasQuery.forEach(r => receitasMap.set(Number(r.mes), Number(r.total_receitas ?? 0)))
-    despesasQuery.forEach(d => despesasMap.set(Number(d.mes), Number(d.total_despesas ?? 0)))
+    receitasQuery.forEach((r: MesRow) => receitasMap.set(Number(r.mes), Number(r.total_receitas ?? 0)))
+    despesasQuery.forEach((d: MesRow) => despesasMap.set(Number(d.mes), Number(d.total_despesas ?? 0)))
 
     return Array.from({ length: 12 }, (_, i) => {
         const mes = i + 1

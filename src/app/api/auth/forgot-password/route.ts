@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     try {
       await sendPasswordResetEmail(user.email, resetToken, user.nome)
-    } catch (emailError) {
+    } catch {
       await prisma.user.update({
         where: { id: user.id },
         data: { reset_password_token: null, reset_password_expires: null }
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, message: 'Se o email estiver cadastrado, você receberá um link de recuperação.' })
-  } catch (error) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Erro ao processar solicitação.' }, { status: 500 })
   }
 }

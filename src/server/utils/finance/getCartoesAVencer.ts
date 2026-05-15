@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 
 export interface CartoesAVencerResult {
@@ -39,7 +38,7 @@ export const getCartoesAVencer = async (user_id: number): Promise<CartoesAVencer
         WHERE user_id = ${user_id} AND dia_vencimento = ANY(${dias}::int[])
     `
 
-    return rows.map(row => ({
+    return rows.map((row: RawRow) => ({
         id: row.id,
         nome: row.nome,
         limite: Number(row.limite),

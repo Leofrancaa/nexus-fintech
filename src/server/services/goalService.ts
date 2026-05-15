@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 import { createErrorResponse, isPositiveNumber } from '@/server/utils/helper'
 
@@ -68,7 +67,7 @@ export class GoalService {
             orderBy: [{ ano: 'desc' }, { mes: 'desc' }]
         })
 
-        return Promise.all(goals.map(async (goal) => {
+        return Promise.all(goals.map(async (goal: typeof goals[number]) => {
             const incomeResult = await prisma.$queryRaw<Array<{ valor_atual: string }>>`
                 SELECT COALESCE(SUM(quantidade), 0) as valor_atual
                 FROM incomes

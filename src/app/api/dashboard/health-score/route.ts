@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorizedResponse } from '@/server/lib/auth'
 import { ok, apiError } from '@/server/lib/apiResponse'
@@ -74,7 +73,7 @@ export async function GET(request: NextRequest) {
           : `${violacoesCount} limite(s) de gasto excedido(s)`
     }
 
-    const planosComProgresso = planos.filter(p => Number(p.total_contribuido) > 0)
+    const planosComProgresso = planos.filter((p: { total_contribuido: unknown }) => Number(p.total_contribuido) > 0)
     scores.planos = {
       pontos: planosComProgresso.length > 0 ? 20 : (planos.length > 0 ? 10 : 0),
       descricao: planosComProgresso.length > 0

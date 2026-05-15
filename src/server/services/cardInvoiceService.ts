@@ -1,8 +1,6 @@
-// @ts-nocheck
 import { Prisma } from '@prisma/client'
 import prisma from '@/server/db/prisma'
 import {
-    addMonthsSafe,
     createErrorResponse
 } from '@/server/utils/helper'
 
@@ -143,7 +141,7 @@ export class CardInvoiceService {
 
         const now = new Date()
 
-        return expensesResult.map(row => {
+        return expensesResult.map((row: { competencia_mes: number; competencia_ano: number; total_fatura: string }) => {
             const mes = Number(row.competencia_mes)
             const ano = Number(row.competencia_ano)
             const dueDate = new Date(ano, mes - 1, Math.min(dueDay, 28))
@@ -177,7 +175,7 @@ export class CardInvoiceService {
             take: limit,
         })
 
-        return payments.map(p => ({
+        return payments.map((p: { competencia_mes: number; competencia_ano: number; amount_paid: unknown; created_at: Date }) => ({
             competencia_mes: p.competencia_mes,
             competencia_ano: p.competencia_ano,
             amount_paid: Number(p.amount_paid),

@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorizedResponse } from '@/server/lib/auth'
 import { ok, apiError } from '@/server/lib/apiResponse'
 import { IncomeService } from '@/server/services/incomeService'
-import { formatDatesInObject } from '@/server/utils/helper'
 
 export async function GET(request: NextRequest) {
   try {

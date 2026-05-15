@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 
 export interface GastosPorCategoriaResult {
@@ -29,5 +28,5 @@ export const getGastosPorCategoria = async (
         ORDER BY total DESC
     `
 
-    return rows.map(row => ({ id: row.id, nome: row.nome, total: Number(row.total) }))
+    return rows.map((row: RawRow) => ({ id: row.id, nome: row.nome, total: Number(row.total) }))
 }

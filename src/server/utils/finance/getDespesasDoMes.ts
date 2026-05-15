@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 
 export interface DespesasDoMesResult {
@@ -47,7 +46,7 @@ export const getDespesasDoMes = async (
         AND EXTRACT(YEAR FROM data) = ${ano}
     `
 
-    return rows.map(row => ({
+    return rows.map((row: RawRow) => ({
         id: row.id,
         metodo_pagamento: row.metodo_pagamento,
         tipo: row.tipo,

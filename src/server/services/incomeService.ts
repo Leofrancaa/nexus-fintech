@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 import { Prisma } from '@prisma/client'
 import {
@@ -119,8 +118,8 @@ export class IncomeService {
             orderBy: { data: 'desc' }
         })
 
-        return incomes.map(i => ({
-            ...this.mapToIncome(i),
+        return incomes.map((i: typeof incomes[number]) => ({
+            ...this.mapToIncome(i as unknown as Record<string, unknown>),
             categoria_nome: i.category?.nome,
             cor_categoria: i.category?.cor,
         }))
@@ -144,7 +143,7 @@ export class IncomeService {
             ORDER BY i.data DESC
         `
 
-        return result.map(row => ({
+        return result.map((row: Record<string, unknown>) => ({
             ...row,
             quantidade: Number(row.quantidade),
             data: row.data instanceof Date ? formatDate(row.data as Date) : row.data,
@@ -275,7 +274,7 @@ export class IncomeService {
         const meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
         return meses.map((mes, index) => {
-            const encontrado = result.find(r => Number(r.numero_mes) === index + 1)
+            const encontrado = result.find((r: { numero_mes: number; total: string }) => Number(r.numero_mes) === index + 1)
             return { mes, total: encontrado ? Number(encontrado.total) : 0 }
         })
     }
@@ -310,9 +309,9 @@ export class IncomeService {
             GROUP BY c.nome, c.cor
         `
 
-        const totalGeral = result.reduce((acc, r) => acc + Number(r.total), 0)
+        const totalGeral = result.reduce((acc: number, r: { nome: string; cor: string; quantidade: string; total: string }) => acc + Number(r.total), 0)
 
-        return result.map(r => ({
+        return result.map((r: { nome: string; cor: string; quantidade: string; total: string }) => ({
             nome: r.nome,
             cor: r.cor,
             quantidade: Number(r.quantidade),

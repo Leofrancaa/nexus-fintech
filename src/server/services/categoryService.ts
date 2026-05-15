@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 import {
     Category,
@@ -208,7 +207,7 @@ export class CategoryService {
             select: { id: true }
         })
 
-        const subcategoryIds: number[] = children.map(c => c.id)
+        const subcategoryIds: number[] = children.map((c: { id: number }) => c.id)
 
         for (const subId of subcategoryIds) {
             const childIds = await this.getAllSubcategoryIds(subId, userId)
@@ -254,7 +253,7 @@ export class CategoryService {
             ORDER BY total_transacoes DESC
         `
 
-        return result.map(row => ({
+        return result.map((row: { id: number; nome: string; tipo: string; total_transacoes: bigint; valor_total: string; ultima_utilizacao: Date | null }) => ({
             id: row.id,
             nome: row.nome,
             tipo: row.tipo as 'despesa' | 'receita',

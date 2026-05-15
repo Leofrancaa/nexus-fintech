@@ -1,4 +1,3 @@
-// @ts-nocheck
 import prisma from '@/server/db/prisma'
 
 export interface TopCategoriasResult {
@@ -28,5 +27,5 @@ export const getTopCategoriasGasto = async (
         LIMIT 5
     `
 
-    return rows.map(row => ({ nome: row.nome, total: Number(row.total) }))
+    return rows.map((row: RawRow) => ({ nome: row.nome, total: Number(row.total) }))
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorizedResponse } from '@/server/lib/auth'
 import { ok, apiError } from '@/server/lib/apiResponse'
@@ -22,7 +21,7 @@ export async function GET(request: NextRequest) {
     const meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
     const dados = meses.map((mes, index) => {
-      const encontrado = rows.find(r => Number(r.numero_mes) === index + 1)
+      const encontrado = rows.find((r: { numero_mes: number; total: string }) => Number(r.numero_mes) === index + 1)
       return { mes, total: encontrado ? Number(encontrado.total) : 0 }
     })
 
