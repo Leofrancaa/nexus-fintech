@@ -72,12 +72,9 @@ export function CarryoverBanner({ customMonth, customYear, refreshKey, onApplied
         body: JSON.stringify({ mes, ano }),
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Erro ao aplicar saldo");
-      }
-
       const json = await res.json();
+      if (!res.ok) throw new Error(json.error || json.message || "Erro ao aplicar saldo");
+
       setStatus(json.data ?? json);
 
       const label =
@@ -106,8 +103,8 @@ export function CarryoverBanner({ customMonth, customYear, refreshKey, onApplied
       );
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Erro ao desfazer");
+        const errJson = await res.json();
+        throw new Error(errJson.error || errJson.message || "Erro ao desfazer");
       }
 
       // Re-fetch status

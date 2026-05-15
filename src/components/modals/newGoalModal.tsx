@@ -51,7 +51,7 @@ export function NewGoalModal({ onCreated }: Props) {
 
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Erro ao criar meta");
+        throw new Error(error.error || error.message || "Erro ao criar meta");
       }
 
       toast.success("Meta criada com sucesso!");

@@ -62,7 +62,7 @@ export default function PlanCard({ plano, onRefresh }: PlanCardProps) {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        toast.error(data?.message || "Erro ao excluir plano.");
+        toast.error(data?.error || data?.message || "Erro ao excluir plano.");
         return;
       }
 

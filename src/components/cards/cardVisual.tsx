@@ -124,17 +124,19 @@ export function CardVisual({
   const handlePayInvoice = async () => {
     try {
       setPagarLoading(true);
+      const now = new Date();
       const res = await apiRequest(`/api/cards/${id}/pay-invoice`, {
         method: "POST",
-        body: JSON.stringify({}), // envie { mes, ano } se quiser pagar uma competência específica
+        body: JSON.stringify({ mes: now.getMonth() + 1, ano: now.getFullYear() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha ao pagar fatura.");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Falha ao pagar fatura.");
 
+      const invoice = json.data ?? json;
       toast.success(
-        `Fatura ${String(data.competencia_mes).padStart(2, "0")}/${
-          data.competencia_ano
-        } paga. Limite devolvido: ${formatCurrency(data.total_devolvido || 0)}`
+        `Fatura ${String(invoice.competencia_mes).padStart(2, "0")}/${
+          invoice.competencia_ano
+        } paga. Limite devolvido: ${formatCurrency(invoice.total_devolvido || 0)}`
       );
 
       // atualiza a lista no pai (incrementa refreshKey)

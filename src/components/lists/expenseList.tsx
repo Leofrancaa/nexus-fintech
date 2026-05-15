@@ -134,11 +134,11 @@ export function ExpenseList({
         throw new Error(errorData.error || "Erro ao excluir despesa.");
       }
 
-      const deleted = await res.json();
+      const { data: deletedData } = await res.json();
 
-      const idsRemovidos = Array.isArray(deleted)
-        ? deleted.map((d: Expense) => d.id)
-        : [deleted.id];
+      const idsRemovidos = Array.isArray(deletedData)
+        ? deletedData.map((d: Expense) => d.id)
+        : [deletedData.id];
 
       setExpenses(
         (prev) => prev?.filter((e) => !idsRemovidos.includes(e.id)) || []
