@@ -86,7 +86,8 @@ export const isPositiveNumber = (value: unknown): boolean => {
 export const toNumber = (value: unknown): number | null => {
     if (typeof value === 'number') return value
     if (typeof value === 'string') {
-        const num = parseFloat(value)
+        if (value.trim() === '') return null
+        const num = Number(value)
         return isNaN(num) ? null : num
     }
     return null
