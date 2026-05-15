@@ -11,14 +11,11 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    // Otimizações para produção
-    swcMinify: true,
     compress: true,
     poweredByHeader: false,
 
     // Variáveis de ambiente públicas
     env: {
-        NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
         NEXT_PUBLIC_APP_VERSION: process.env.npm_package_version || '2.0.0',
     },
 
