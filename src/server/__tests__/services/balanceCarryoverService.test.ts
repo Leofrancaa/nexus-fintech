@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mockReset } from 'vitest-mock-extended'
-import { prismaMock } from '../mocks/prisma'
+import { describe, it, expect } from 'vitest'
+import { eq, and } from 'drizzle-orm'
+import { db } from '../mocks/db'
+import * as schema from '@/server/db/schema'
 import { BalanceCarryoverService } from '@/server/services/balanceCarryoverService'
 
 const USER_ID = 1
@@ -11,23 +12,26 @@ const TARGET_ANO = 2025
 const SRC_MES = 1
 const SRC_ANO = 2025
 
-function rawTotal(value: number) {
-  return [{ total: String(value) }]
-}
+const JAN = new Date('2025-01-15T12:00:00')
+const FEB_START = new Date(2025, 1, 1)
 
-beforeEach(() => {
-  mockReset(prismaMock)
-  vi.clearAllMocks()
-})
+async function seedIncome(quantidade: string, data: Date, tipo = 'salario') {
+  await db.insert(schema.incomes).values({ user_id: USER_ID, tipo, quantidade, data })
+}
+async function seedExpense(quantidade: string, data: Date, tipo = 'compra') {
+  await db.insert(schema.expenses).values({
+    user_id: USER_ID,
+    tipo,
+    quantidade,
+    data,
+    metodo_pagamento: 'pix',
+  })
+}
 
 describe('BalanceCarryoverService.check', () => {
   it('retorna saldo positivo e status pendente quando carryover não foi aplicado', async () => {
-    // receitas jan = 1000, despesas jan = 600 → saldo = 400
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(1000) as never) // receitas
-      .mockResolvedValueOnce(rawTotal(600) as never)  // despesas
-
-    prismaMock.income.findFirst.mockResolvedValue(null) // ainda não aplicado
+    await seedIncome('1000', JAN)
+    await seedExpense('600', JAN)
 
     const result = await BalanceCarryoverService.check(USER_ID, TARGET_MES, TARGET_ANO)
 
@@ -39,12 +43,8 @@ describe('BalanceCarryoverService.check', () => {
   })
 
   it('retorna saldo negativo e status pendente quando há débito', async () => {
-    // receitas jan = 500, despesas jan = 800 → saldo = -300
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(500) as never)
-      .mockResolvedValueOnce(rawTotal(800) as never)
-
-    prismaMock.expense.findFirst.mockResolvedValue(null)
+    await seedIncome('500', JAN)
+    await seedExpense('800', JAN)
 
     const result = await BalanceCarryoverService.check(USER_ID, TARGET_MES, TARGET_ANO)
 
@@ -54,9 +54,8 @@ describe('BalanceCarryoverService.check', () => {
   })
 
   it('retorna status zerado quando saldo é exatamente zero', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(500) as never)
-      .mockResolvedValueOnce(rawTotal(500) as never)
+    await seedIncome('500', JAN)
+    await seedExpense('500', JAN)
 
     const result = await BalanceCarryoverService.check(USER_ID, TARGET_MES, TARGET_ANO)
 
@@ -66,61 +65,57 @@ describe('BalanceCarryoverService.check', () => {
   })
 
   it('retorna status aplicado quando já existe receita de carryover no mês alvo', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(1000) as never)
-      .mockResolvedValueOnce(rawTotal(400) as never)
-
-    // Receita de carryover já existe
-    prismaMock.income.findFirst.mockResolvedValue({ id: 99 } as never)
+    await seedIncome('1000', JAN)
+    await seedExpense('400', JAN)
+    // Carryover já aplicado em fevereiro
+    await seedIncome('600', FEB_START, 'saldo_anterior')
 
     const result = await BalanceCarryoverService.check(USER_ID, TARGET_MES, TARGET_ANO)
 
     expect(result.status).toBe('aplicado')
-    expect(result.income_id).toBe(99)
+    expect(result.income_id).toBeDefined()
   })
 })
 
 describe('BalanceCarryoverService.apply', () => {
   it('cria receita de carryover quando saldo é positivo', async () => {
-    // check retorna saldo positivo pendente
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(1000) as never) // receitas (check)
-      .mockResolvedValueOnce(rawTotal(600) as never)  // despesas (check)
-    prismaMock.income.findFirst.mockResolvedValue(null)
-
-    // getOrCreateCategory
-    prismaMock.category.findFirst.mockResolvedValue({ id: 5 } as never)
-    // criar receita
-    prismaMock.income.create.mockResolvedValue({ id: 10 } as never)
+    await seedIncome('1000', JAN)
+    await seedExpense('600', JAN)
 
     const result = await BalanceCarryoverService.apply(USER_ID, TARGET_MES, TARGET_ANO)
 
-    expect(prismaMock.income.create).toHaveBeenCalledOnce()
     expect(result.status).toBe('aplicado')
-    expect(result.income_id).toBe(10)
+    expect(result.income_id).toBeDefined()
+
+    const carryovers = await db
+      .select()
+      .from(schema.incomes)
+      .where(and(eq(schema.incomes.user_id, USER_ID), eq(schema.incomes.tipo, 'saldo_anterior')))
+    expect(carryovers).toHaveLength(1)
+    expect(Number(carryovers[0].quantidade)).toBe(400)
   })
 
   it('cria despesa de carryover quando saldo é negativo', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(400) as never)
-      .mockResolvedValueOnce(rawTotal(700) as never)
-    prismaMock.expense.findFirst.mockResolvedValue(null)
-
-    prismaMock.category.findFirst.mockResolvedValue({ id: 6 } as never)
-    prismaMock.expense.create.mockResolvedValue({ id: 20 } as never)
+    await seedIncome('400', JAN)
+    await seedExpense('700', JAN)
 
     const result = await BalanceCarryoverService.apply(USER_ID, TARGET_MES, TARGET_ANO)
 
-    expect(prismaMock.expense.create).toHaveBeenCalledOnce()
     expect(result.status).toBe('aplicado')
-    expect(result.expense_id).toBe(20)
+    expect(result.expense_id).toBeDefined()
+
+    const carryovers = await db
+      .select()
+      .from(schema.expenses)
+      .where(and(eq(schema.expenses.user_id, USER_ID), eq(schema.expenses.tipo, 'debito_anterior')))
+    expect(carryovers).toHaveLength(1)
+    expect(Number(carryovers[0].quantidade)).toBe(300)
   })
 
   it('lança erro 409 quando carryover já foi aplicado', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(1000) as never)
-      .mockResolvedValueOnce(rawTotal(600) as never)
-    prismaMock.income.findFirst.mockResolvedValue({ id: 99 } as never) // já aplicado
+    await seedIncome('1000', JAN)
+    await seedExpense('600', JAN)
+    await seedIncome('400', FEB_START, 'saldo_anterior')
 
     await expect(
       BalanceCarryoverService.apply(USER_ID, TARGET_MES, TARGET_ANO)
@@ -128,9 +123,8 @@ describe('BalanceCarryoverService.apply', () => {
   })
 
   it('lança erro 400 quando saldo é zero', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(500) as never)
-      .mockResolvedValueOnce(rawTotal(500) as never)
+    await seedIncome('500', JAN)
+    await seedExpense('500', JAN)
 
     await expect(
       BalanceCarryoverService.apply(USER_ID, TARGET_MES, TARGET_ANO)
@@ -140,34 +134,36 @@ describe('BalanceCarryoverService.apply', () => {
 
 describe('BalanceCarryoverService.undo', () => {
   it('deleta a receita de carryover quando status é aplicado positivo', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(1000) as never)
-      .mockResolvedValueOnce(rawTotal(600) as never)
-    prismaMock.income.findFirst.mockResolvedValue({ id: 99 } as never)
-    prismaMock.income.delete.mockResolvedValue({} as never)
+    await seedIncome('1000', JAN)
+    await seedExpense('600', JAN)
+    await seedIncome('400', FEB_START, 'saldo_anterior')
 
     await BalanceCarryoverService.undo(USER_ID, TARGET_MES, TARGET_ANO)
 
-    expect(prismaMock.income.delete).toHaveBeenCalledWith({ where: { id: 99 } })
+    const remaining = await db
+      .select()
+      .from(schema.incomes)
+      .where(eq(schema.incomes.tipo, 'saldo_anterior'))
+    expect(remaining).toHaveLength(0)
   })
 
   it('deleta a despesa de carryover quando status é aplicado negativo', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(300) as never)
-      .mockResolvedValueOnce(rawTotal(800) as never)
-    prismaMock.expense.findFirst.mockResolvedValue({ id: 88 } as never)
-    prismaMock.expense.delete.mockResolvedValue({} as never)
+    await seedIncome('400', JAN)
+    await seedExpense('700', JAN)
+    await seedExpense('300', FEB_START, 'debito_anterior')
 
     await BalanceCarryoverService.undo(USER_ID, TARGET_MES, TARGET_ANO)
 
-    expect(prismaMock.expense.delete).toHaveBeenCalledWith({ where: { id: 88 } })
+    const remaining = await db
+      .select()
+      .from(schema.expenses)
+      .where(eq(schema.expenses.tipo, 'debito_anterior'))
+    expect(remaining).toHaveLength(0)
   })
 
   it('lança erro 404 quando não há carryover aplicado para desfazer', async () => {
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce(rawTotal(1000) as never)
-      .mockResolvedValueOnce(rawTotal(600) as never)
-    prismaMock.income.findFirst.mockResolvedValue(null) // não aplicado
+    await seedIncome('1000', JAN)
+    await seedExpense('600', JAN)
 
     await expect(
       BalanceCarryoverService.undo(USER_ID, TARGET_MES, TARGET_ANO)

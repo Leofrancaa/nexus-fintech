@@ -1,4 +1,5 @@
-import prisma from '@/server/db/prisma'
+import { sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
 
 export interface TopCategoriasResult {
     nome: string
@@ -15,7 +16,7 @@ export const getTopCategoriasGasto = async (
     mes: number,
     ano: number
 ): Promise<TopCategoriasResult[]> => {
-    const rows = await prisma.$queryRaw<RawRow[]>`
+    const result = await db.execute(sql`
         SELECT c.nome, SUM(e.quantidade) AS total
         FROM expenses e
         JOIN categories c ON e.category_id = c.id
@@ -25,7 +26,8 @@ export const getTopCategoriasGasto = async (
         GROUP BY c.nome
         ORDER BY total DESC
         LIMIT 5
-    `
+    `)
+    const rows = result.rows as unknown as RawRow[]
 
     return rows.map((row: RawRow) => ({ nome: row.nome, total: Number(row.total) }))
 }

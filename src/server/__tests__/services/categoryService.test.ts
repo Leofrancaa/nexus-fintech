@@ -1,51 +1,38 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mockReset } from 'vitest-mock-extended'
-import { prismaMock } from '../mocks/prisma'
+import { describe, it, expect } from 'vitest'
+import { eq } from 'drizzle-orm'
+import { db } from '../mocks/db'
+import * as schema from '@/server/db/schema'
 import { CategoryService } from '@/server/services/categoryService'
 
 const USER_ID = 1
 
-function makeCategoryRecord(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 1,
-    nome: 'Alimentação',
-    cor: '#FF6B6B',
-    tipo: 'despesa',
-    parent_id: null,
-    user_id: USER_ID,
-    created_at: new Date(),
-    updated_at: new Date(),
-    ...overrides,
-  }
+async function seedCategory(overrides: Partial<typeof schema.categories.$inferInsert> = {}) {
+  const [row] = await db
+    .insert(schema.categories)
+    .values({
+      nome: 'Alimentação',
+      cor: '#FF6B6B',
+      tipo: 'despesa',
+      parent_id: null,
+      user_id: USER_ID,
+      ...overrides,
+    })
+    .returning()
+  return row
 }
-
-beforeEach(() => {
-  mockReset(prismaMock)
-  vi.clearAllMocks()
-
-  prismaMock.$transaction.mockImplementation(async (ops: unknown) => {
-    if (typeof ops === 'function') return ops(prismaMock)
-    return Promise.all(ops as Promise<unknown>[])
-  })
-})
 
 // ─── createCategory ──────────────────────────────────────────────────────────
 
 describe('CategoryService.createCategory', () => {
   it('cria categoria de despesa com sucesso', async () => {
-    prismaMock.category.findFirst.mockResolvedValue(null) // sem duplicata nome
-    // segunda chamada: verificação de cor
-    prismaMock.category.findFirst.mockResolvedValue(null)
-    const record = makeCategoryRecord()
-    prismaMock.category.create.mockResolvedValue(record as never)
-
     const result = await CategoryService.createCategory(
       { nome: 'Alimentação', cor: '#FF6B6B', tipo: 'despesa' },
       USER_ID
     )
 
-    expect(prismaMock.category.create).toHaveBeenCalledOnce()
     expect(result.nome).toBe('Alimentação')
+    const rows = await db.select().from(schema.categories).where(eq(schema.categories.user_id, USER_ID))
+    expect(rows).toHaveLength(1)
   })
 
   it('lança erro 400 quando nome está ausente', async () => {
@@ -67,17 +54,15 @@ describe('CategoryService.createCategory', () => {
   })
 
   it('lança erro 409 quando nome já existe para o mesmo tipo', async () => {
-    prismaMock.category.findFirst.mockResolvedValue(makeCategoryRecord() as never)
+    await seedCategory({ nome: 'Alimentação', tipo: 'despesa' })
 
     await expect(
-      CategoryService.createCategory({ nome: 'Alimentação', cor: '#FF6B6B', tipo: 'despesa' }, USER_ID)
+      CategoryService.createCategory({ nome: 'Alimentação', cor: '#00FF00', tipo: 'despesa' }, USER_ID)
     ).rejects.toMatchObject({ status: 409 })
   })
 
   it('lança erro 409 quando cor já está em uso no mesmo tipo', async () => {
-    prismaMock.category.findFirst
-      .mockResolvedValueOnce(null)  // nome não duplicado
-      .mockResolvedValueOnce(makeCategoryRecord({ nome: 'Outra' }) as never) // cor duplicada
+    await seedCategory({ nome: 'Outra', cor: '#FF6B6B', tipo: 'despesa' })
 
     await expect(
       CategoryService.createCategory({ nome: 'Nova', cor: '#FF6B6B', tipo: 'despesa' }, USER_ID)
@@ -85,24 +70,22 @@ describe('CategoryService.createCategory', () => {
   })
 
   it('lança erro 400 quando parent é de tipo diferente', async () => {
-    prismaMock.category.findFirst
-      .mockResolvedValueOnce(null)  // nome não duplicado
-      .mockResolvedValueOnce(null)  // cor não duplicada
-      .mockResolvedValueOnce(makeCategoryRecord({ tipo: 'receita' }) as never) // parent de tipo diferente
+    const parent = await seedCategory({ nome: 'Pai', cor: '#111111', tipo: 'receita' })
 
     await expect(
-      CategoryService.createCategory({ nome: 'Sub', cor: '#FF6B6B', tipo: 'despesa', parent_id: 99 }, USER_ID)
+      CategoryService.createCategory(
+        { nome: 'Sub', cor: '#222222', tipo: 'despesa', parent_id: parent.id },
+        USER_ID
+      )
     ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('mesmo tipo') })
   })
 
   it('lança erro 404 quando parent_id não existe', async () => {
-    prismaMock.category.findFirst
-      .mockResolvedValueOnce(null) // nome não duplicado
-      .mockResolvedValueOnce(null) // cor não duplicada
-      .mockResolvedValueOnce(null) // parent não encontrado
-
     await expect(
-      CategoryService.createCategory({ nome: 'Sub', cor: '#FF6B6B', tipo: 'despesa', parent_id: 999 }, USER_ID)
+      CategoryService.createCategory(
+        { nome: 'Sub', cor: '#222222', tipo: 'despesa', parent_id: 999 },
+        USER_ID
+      )
     ).rejects.toMatchObject({ status: 404 })
   })
 })
@@ -111,42 +94,33 @@ describe('CategoryService.createCategory', () => {
 
 describe('CategoryService.updateCategory', () => {
   it('atualiza nome com sucesso', async () => {
-    const existing = makeCategoryRecord()
-    const updated = makeCategoryRecord({ nome: 'Comida' })
-    prismaMock.category.findFirst
-      .mockResolvedValueOnce(existing as never)  // getCategoryById
-      .mockResolvedValueOnce(null)               // sem nome duplicado
-    prismaMock.category.update.mockResolvedValue(updated as never)
+    const cat = await seedCategory()
 
-    const result = await CategoryService.updateCategory(1, { nome: 'Comida' }, USER_ID)
+    const result = await CategoryService.updateCategory(cat.id, { nome: 'Comida' }, USER_ID)
 
-    expect(prismaMock.category.update).toHaveBeenCalledOnce()
     expect(result.nome).toBe('Comida')
   })
 
   it('lança erro 404 quando categoria não existe', async () => {
-    prismaMock.category.findFirst.mockResolvedValue(null)
-
     await expect(
       CategoryService.updateCategory(999, { nome: 'X' }, USER_ID)
     ).rejects.toMatchObject({ status: 404 })
   })
 
   it('lança erro 400 quando categoria tenta ser pai de si mesma', async () => {
-    prismaMock.category.findFirst.mockResolvedValue(makeCategoryRecord() as never)
+    const cat = await seedCategory()
 
     await expect(
-      CategoryService.updateCategory(1, { parent_id: 1 }, USER_ID)
+      CategoryService.updateCategory(cat.id, { parent_id: cat.id }, USER_ID)
     ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('pai de si mesma') })
   })
 
   it('lança erro 409 quando novo nome já existe', async () => {
-    prismaMock.category.findFirst
-      .mockResolvedValueOnce(makeCategoryRecord() as never)  // exists
-      .mockResolvedValueOnce(makeCategoryRecord({ id: 2, nome: 'Comida' }) as never) // duplicado
+    const cat = await seedCategory({ nome: 'Alimentação' })
+    await seedCategory({ nome: 'Comida', cor: '#00FF00' })
 
     await expect(
-      CategoryService.updateCategory(1, { nome: 'Comida' }, USER_ID)
+      CategoryService.updateCategory(cat.id, { nome: 'Comida' }, USER_ID)
     ).rejects.toMatchObject({ status: 409 })
   })
 })
@@ -155,50 +129,40 @@ describe('CategoryService.updateCategory', () => {
 
 describe('CategoryService.deleteCategory', () => {
   it('deleta categoria simples sem subcategorias e sem transações', async () => {
-    prismaMock.category.findFirst.mockResolvedValue(makeCategoryRecord() as never)
-    prismaMock.category.findMany.mockResolvedValue([] as never) // sem subcategorias
-    prismaMock.expense.count.mockResolvedValue(0)
-    prismaMock.income.count.mockResolvedValue(0)
-    prismaMock.expense.deleteMany.mockResolvedValue({ count: 0 } as never)
-    prismaMock.income.deleteMany.mockResolvedValue({ count: 0 } as never)
-    prismaMock.threshold.deleteMany.mockResolvedValue({ count: 0 } as never)
-    prismaMock.category.delete.mockResolvedValue({} as never)
+    const cat = await seedCategory()
 
-    const result = await CategoryService.deleteCategory(1, USER_ID)
+    const result = await CategoryService.deleteCategory(cat.id, USER_ID)
 
-    expect(prismaMock.category.delete).toHaveBeenCalledWith({ where: { id: 1 } })
     expect(result.deletedItems.subcategorias).toBe(0)
     expect(result.deletedItems.despesas).toBe(0)
+    const rows = await db.select().from(schema.categories).where(eq(schema.categories.id, cat.id))
+    expect(rows).toHaveLength(0)
   })
 
-  it('deleta categoria com subcategorias em cascata', async () => {
-    const parent = makeCategoryRecord()
-    const child = makeCategoryRecord({ id: 2, parent_id: 1, nome: 'Sub' })
+  it('deleta categoria com subcategorias e transações em cascata', async () => {
+    const parent = await seedCategory({ nome: 'Pai' })
+    const child = await seedCategory({ nome: 'Sub', cor: '#00FF00', parent_id: parent.id })
 
-    prismaMock.category.findFirst.mockResolvedValue(parent as never)
-    // getAllSubcategoryIds: 1ª chamada retorna [child], 2ª (recursiva) retorna []
-    prismaMock.category.findMany
-      .mockResolvedValueOnce([child] as never)
-      .mockResolvedValueOnce([] as never)
-    prismaMock.expense.count.mockResolvedValue(3)
-    prismaMock.income.count.mockResolvedValue(1)
-    prismaMock.expense.deleteMany.mockResolvedValue({ count: 3 } as never)
-    prismaMock.income.deleteMany.mockResolvedValue({ count: 1 } as never)
-    prismaMock.threshold.deleteMany.mockResolvedValue({ count: 0 } as never)
-    prismaMock.category.deleteMany.mockResolvedValue({ count: 1 } as never)
-    prismaMock.category.delete.mockResolvedValue({} as never)
+    await db.insert(schema.expenses).values([
+      { metodo_pagamento: 'pix', tipo: 'compra', quantidade: '10', data: new Date('2025-01-01'), user_id: USER_ID, category_id: parent.id },
+      { metodo_pagamento: 'pix', tipo: 'compra', quantidade: '20', data: new Date('2025-01-02'), user_id: USER_ID, category_id: child.id },
+      { metodo_pagamento: 'pix', tipo: 'compra', quantidade: '30', data: new Date('2025-01-03'), user_id: USER_ID, category_id: parent.id },
+    ])
+    await db.insert(schema.incomes).values([
+      { tipo: 'venda', quantidade: '5', data: new Date('2025-01-01'), user_id: USER_ID, category_id: child.id },
+    ])
 
-    const result = await CategoryService.deleteCategory(1, USER_ID)
+    const result = await CategoryService.deleteCategory(parent.id, USER_ID)
 
     expect(result.deletedItems.subcategorias).toBe(1)
     expect(result.deletedItems.despesas).toBe(3)
     expect(result.deletedItems.receitas).toBe(1)
-    expect(prismaMock.category.deleteMany).toHaveBeenCalledOnce() // deletou subcategorias
+
+    const cats = await db.select().from(schema.categories).where(eq(schema.categories.user_id, USER_ID))
+    expect(cats).toHaveLength(0)
   })
 
   it('lança erro 404 quando categoria não existe', async () => {
-    prismaMock.category.findFirst.mockResolvedValue(null)
-
     await expect(
       CategoryService.deleteCategory(999, USER_ID)
     ).rejects.toMatchObject({ status: 404 })
@@ -209,21 +173,17 @@ describe('CategoryService.deleteCategory', () => {
 
 describe('CategoryService.getCategoryTree', () => {
   it('retorna estrutura hierárquica com pai e filhos', async () => {
-    const parent = makeCategoryRecord({ id: 1, parent_id: null })
-    const child = makeCategoryRecord({ id: 2, parent_id: 1, nome: 'Sub' })
-
-    prismaMock.category.findMany.mockResolvedValue([parent, child] as never)
+    const parent = await seedCategory({ nome: 'Pai', parent_id: null })
+    await seedCategory({ nome: 'Sub', cor: '#00FF00', parent_id: parent.id })
 
     const result = await CategoryService.getCategoryTree(USER_ID)
 
-    expect(result.length).toBe(1) // apenas 1 raiz
+    expect(result.length).toBe(1)
     expect(result[0].children?.length).toBe(1)
     expect(result[0].children?.[0].nome).toBe('Sub')
   })
 
   it('retorna lista vazia quando não há categorias', async () => {
-    prismaMock.category.findMany.mockResolvedValue([] as never)
-
     const result = await CategoryService.getCategoryTree(USER_ID)
 
     expect(result).toEqual([])

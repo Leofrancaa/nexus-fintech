@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcrypt'
-import prisma from '@/server/db/prisma'
+import { and, eq, gt } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { users } from '@/server/db/schema'
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,13 +16,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'A nova senha deve ter pelo menos 6 caracteres.' }, { status: 400 })
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        reset_password_token: token,
-        reset_password_expires: { gt: new Date() }
-      },
-      select: { id: true, email: true, nome: true }
-    })
+    const [user] = await db
+      .select({ id: users.id, email: users.email, nome: users.nome })
+      .from(users)
+      .where(
+        and(
+          eq(users.reset_password_token, token),
+          gt(users.reset_password_expires, new Date())
+        )
+      )
+      .limit(1)
 
     if (!user) {
       return NextResponse.json({ success: false, error: 'Token inválido ou expirado.' }, { status: 400 })
@@ -28,10 +33,10 @@ export async function POST(request: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(novaSenha, 12)
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { senha: hashedPassword, reset_password_token: null, reset_password_expires: null }
-    })
+    await db
+      .update(users)
+      .set({ senha: hashedPassword, reset_password_token: null, reset_password_expires: null })
+      .where(eq(users.id, user.id))
 
     return NextResponse.json({ success: true, message: 'Senha redefinida com sucesso. Você já pode fazer login.' })
   } catch {

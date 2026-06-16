@@ -1,4 +1,5 @@
-import prisma from '@/server/db/prisma'
+import { sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
 
 export interface GastosPorCartaoResult {
     cartao: string
@@ -15,7 +16,7 @@ export const getGastosPorCartao = async (
     mes: number,
     ano: number
 ): Promise<GastosPorCartaoResult[]> => {
-    const rows = await prisma.$queryRaw<RawRow[]>`
+    const result = await db.execute(sql`
         SELECT c.nome AS cartao, SUM(e.quantidade) AS total
         FROM expenses e
         JOIN cards c ON e.card_id = c.id
@@ -24,7 +25,8 @@ export const getGastosPorCartao = async (
         AND EXTRACT(YEAR FROM e.data) = ${ano}
         GROUP BY c.nome
         ORDER BY total DESC
-    `
+    `)
+    const rows = result.rows as unknown as RawRow[]
 
     return rows.map((row: RawRow) => ({ cartao: row.cartao, total: Number(row.total) }))
 }

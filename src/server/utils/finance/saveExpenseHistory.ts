@@ -1,4 +1,5 @@
-import prisma from '@/server/db/prisma'
+import { sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
 
 interface SaveExpenseHistoryParams {
     expense_id: number
@@ -13,8 +14,8 @@ export const saveExpenseHistory = async ({
     tipo,
     alteracao,
 }: SaveExpenseHistoryParams): Promise<void> => {
-    await prisma.$executeRaw`
+    await db.execute(sql`
         INSERT INTO expense_history (expense_id, user_id, tipo, alteracao)
         VALUES (${expense_id}, ${user_id}, ${tipo}, ${JSON.stringify(alteracao)}::jsonb)
-    `
+    `)
 }

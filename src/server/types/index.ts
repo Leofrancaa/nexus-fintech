@@ -76,7 +76,7 @@ export interface CreateCardRequest {
     nome: string
     tipo: 'crédito' | 'débito' | 'credito' | 'debito'
     numero: string
-    cor: string
+    cor?: string
     limite?: number
     dia_vencimento?: number
     dias_fechamento_antes?: number
@@ -149,6 +149,8 @@ export interface Plan {
     total_contribuido: number
     prazo: string
     status: string
+    /** Taxa anual personalizada (% a.a.). Null = usa Selic ao vivo. */
+    taxa_anual?: number | null
     user_id: number
     created_at: Date
     updated_at: Date
@@ -159,10 +161,114 @@ export interface CreatePlanRequest {
     descricao?: string
     meta: number
     prazo: string
+    /** Opcional: taxa anual personalizada (% a.a.). */
+    taxa_anual?: number | null
 }
 
 export interface ContributionRequest {
     valor: number
+}
+
+export interface AporteSimulationRequest {
+    meta: number
+    prazo: string
+    taxa_anual?: number | null
+}
+
+export interface AporteSimulationResult {
+    aporte_mensal: number
+    taxa_utilizada: number
+    taxa_fonte: 'custom' | 'selic' | 'fallback'
+    meses_restantes: number
+}
+
+// ===== Career / Study / Personal Types (non-financial) =====
+export type MilestoneStatus = 'planned' | 'in_progress' | 'done'
+export type CareerHorizon = '0-6m' | '6-18m' | '18-36m'
+export type CareerTrack = 'technical' | 'product'
+export type StudyCategory = 'course' | 'book' | 'certification'
+
+export interface CareerProfile {
+    user_id: number
+    north_star: string | null
+    track: CareerTrack | null
+    rationale: string | null
+    principles: string[]
+    created_at: Date
+    updated_at: Date
+}
+
+export interface UpdateCareerProfileRequest {
+    north_star?: string | null
+    track?: CareerTrack | null
+    rationale?: string | null
+    principles?: string[]
+}
+
+export interface CareerMilestone {
+    id: number
+    user_id: number
+    title: string
+    description: string | null
+    horizon: CareerHorizon
+    status: MilestoneStatus
+    resource_url: string | null
+    position: number
+    created_at: Date
+    updated_at: Date
+}
+
+export interface CreateCareerMilestoneRequest {
+    title: string
+    description?: string | null
+    horizon: CareerHorizon
+    status?: MilestoneStatus
+    resource_url?: string | null
+    position?: number
+}
+
+export interface StudyItem {
+    id: number
+    user_id: number
+    title: string
+    description: string | null
+    category: StudyCategory | null
+    resource_url: string | null
+    progress: number
+    status: MilestoneStatus
+    position: number
+    created_at: Date
+    updated_at: Date
+}
+
+export interface CreateStudyItemRequest {
+    title: string
+    description?: string | null
+    category?: StudyCategory | null
+    resource_url?: string | null
+    progress?: number
+    status?: MilestoneStatus
+    position?: number
+}
+
+export interface PersonalGoal {
+    id: number
+    user_id: number
+    title: string
+    description: string | null
+    status: MilestoneStatus
+    target_date: string | null
+    position: number
+    created_at: Date
+    updated_at: Date
+}
+
+export interface CreatePersonalGoalRequest {
+    title: string
+    description?: string | null
+    status?: MilestoneStatus
+    target_date?: string | null
+    position?: number
 }
 
 // ===== Threshold Types =====

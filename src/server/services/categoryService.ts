@@ -1,4 +1,6 @@
-import prisma from '@/server/db/prisma'
+import { and, eq, asc, sql, count, inArray } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { categories, expenses, incomes, thresholds } from '@/server/db/schema'
 import {
     Category,
     CreateCategoryRequest,
@@ -28,18 +30,34 @@ export class CategoryService {
             throw createErrorResponse("Cor deve estar no formato hexadecimal válido.", 400)
         }
 
-        const existing = await prisma.category.findFirst({
-            where: { nome: nome.trim(), user_id: userId, tipo }
-        })
+        const [existing] = await db
+            .select()
+            .from(categories)
+            .where(
+                and(
+                    eq(categories.nome, nome.trim()),
+                    eq(categories.user_id, userId),
+                    eq(categories.tipo, tipo)
+                )
+            )
+            .limit(1)
 
         if (existing) {
             throw createErrorResponse(`Já existe uma categoria ${tipo} com este nome.`, 409)
         }
 
         if (cor) {
-            const colorExists = await prisma.category.findFirst({
-                where: { cor, user_id: userId, tipo }
-            })
+            const [colorExists] = await db
+                .select()
+                .from(categories)
+                .where(
+                    and(
+                        eq(categories.cor, cor),
+                        eq(categories.user_id, userId),
+                        eq(categories.tipo, tipo)
+                    )
+                )
+                .limit(1)
 
             if (colorExists) {
                 throw createErrorResponse(
@@ -50,9 +68,11 @@ export class CategoryService {
         }
 
         if (parent_id) {
-            const parent = await prisma.category.findFirst({
-                where: { id: parent_id, user_id: userId }
-            })
+            const [parent] = await db
+                .select()
+                .from(categories)
+                .where(and(eq(categories.id, parent_id), eq(categories.user_id, userId)))
+                .limit(1)
 
             if (!parent) {
                 throw createErrorResponse("Categoria pai não encontrada.", 404)
@@ -63,15 +83,16 @@ export class CategoryService {
             }
         }
 
-        const result = await prisma.category.create({
-            data: {
+        const [result] = await db
+            .insert(categories)
+            .values({
                 nome: sanitizeString(nome.trim()),
                 cor: cor || '#6B7280',
                 tipo,
                 parent_id: parent_id || null,
                 user_id: userId,
-            }
-        })
+            })
+            .returning()
 
         return result as unknown as Category
     }
@@ -80,26 +101,26 @@ export class CategoryService {
         userId: number,
         tipo?: 'despesa' | 'receita'
     ): Promise<Category[]> {
-        const categories = await prisma.category.findMany({
-            where: {
-                user_id: userId,
-                ...(tipo === 'despesa' || tipo === 'receita' ? { tipo } : {})
-            },
-            orderBy: [
-                { parent_id: 'asc' },
-                { nome: 'asc' }
-            ]
-        })
+        const conditions = [eq(categories.user_id, userId)]
+        if (tipo === 'despesa' || tipo === 'receita') conditions.push(eq(categories.tipo, tipo))
 
-        return categories as unknown as Category[]
+        const rows = await db
+            .select()
+            .from(categories)
+            .where(and(...conditions))
+            .orderBy(asc(categories.parent_id), asc(categories.nome))
+
+        return rows as unknown as Category[]
     }
 
     static async getCategoryById(categoryId: number, userId: number): Promise<Category | null> {
-        const category = await prisma.category.findFirst({
-            where: { id: categoryId, user_id: userId }
-        })
+        const [category] = await db
+            .select()
+            .from(categories)
+            .where(and(eq(categories.id, categoryId), eq(categories.user_id, userId)))
+            .limit(1)
 
-        return category as unknown as Category | null
+        return (category ?? null) as unknown as Category | null
     }
 
     static async updateCategory(
@@ -127,9 +148,11 @@ export class CategoryService {
         }
 
         if (parent_id) {
-            const parent = await prisma.category.findFirst({
-                where: { id: parent_id, user_id: userId }
-            })
+            const [parent] = await db
+                .select()
+                .from(categories)
+                .where(and(eq(categories.id, parent_id), eq(categories.user_id, userId)))
+                .limit(1)
 
             if (!parent) {
                 throw createErrorResponse("Categoria pai não encontrada.", 404)
@@ -142,29 +165,34 @@ export class CategoryService {
         }
 
         if (nome) {
-            const duplicate = await prisma.category.findFirst({
-                where: {
-                    nome: nome.trim(),
-                    user_id: userId,
-                    tipo: tipo || existsResult.tipo,
-                    id: { not: categoryId }
-                }
-            })
+            const [duplicate] = await db
+                .select()
+                .from(categories)
+                .where(
+                    and(
+                        eq(categories.nome, nome.trim()),
+                        eq(categories.user_id, userId),
+                        eq(categories.tipo, tipo || existsResult.tipo),
+                        sql`${categories.id} <> ${categoryId}`
+                    )
+                )
+                .limit(1)
 
             if (duplicate) {
                 throw createErrorResponse(`Já existe uma categoria com este nome.`, 409)
             }
         }
 
-        const result = await prisma.category.update({
-            where: { id: categoryId },
-            data: {
+        const [result] = await db
+            .update(categories)
+            .set({
                 ...(nome !== undefined ? { nome: sanitizeString(nome.trim()) } : {}),
                 ...(cor !== undefined ? { cor } : {}),
                 ...(tipo !== undefined ? { tipo } : {}),
                 ...(parent_id !== undefined ? { parent_id } : {}),
-            }
-        })
+            })
+            .where(eq(categories.id, categoryId))
+            .returning()
 
         return result as unknown as Category
     }
@@ -178,18 +206,35 @@ export class CategoryService {
         const subcategoryIds = await this.getAllSubcategoryIds(categoryId, userId)
         const allCategoryIds = [categoryId, ...subcategoryIds]
 
-        const [expensesCount, incomesCount] = await Promise.all([
-            prisma.expense.count({ where: { category_id: { in: allCategoryIds }, user_id: userId } }),
-            prisma.income.count({ where: { category_id: { in: allCategoryIds }, user_id: userId } }),
+        const [expensesCountRow, incomesCountRow] = await Promise.all([
+            db.select({ c: count() }).from(expenses).where(
+                and(inArray(expenses.category_id, allCategoryIds), eq(expenses.user_id, userId))
+            ),
+            db.select({ c: count() }).from(incomes).where(
+                and(inArray(incomes.category_id, allCategoryIds), eq(incomes.user_id, userId))
+            ),
         ])
 
-        await prisma.$transaction([
-            prisma.expense.deleteMany({ where: { category_id: { in: allCategoryIds }, user_id: userId } }),
-            prisma.income.deleteMany({ where: { category_id: { in: allCategoryIds }, user_id: userId } }),
-            prisma.threshold.deleteMany({ where: { category_id: { in: allCategoryIds }, user_id: userId } }),
-            ...(subcategoryIds.length > 0 ? [prisma.category.deleteMany({ where: { id: { in: subcategoryIds }, user_id: userId } })] : []),
-            prisma.category.delete({ where: { id: categoryId } }),
-        ])
+        const expensesCount = Number(expensesCountRow[0]?.c ?? 0)
+        const incomesCount = Number(incomesCountRow[0]?.c ?? 0)
+
+        await db.transaction(async (tx) => {
+            await tx.delete(expenses).where(
+                and(inArray(expenses.category_id, allCategoryIds), eq(expenses.user_id, userId))
+            )
+            await tx.delete(incomes).where(
+                and(inArray(incomes.category_id, allCategoryIds), eq(incomes.user_id, userId))
+            )
+            await tx.delete(thresholds).where(
+                and(inArray(thresholds.category_id, allCategoryIds), eq(thresholds.user_id, userId))
+            )
+            if (subcategoryIds.length > 0) {
+                await tx.delete(categories).where(
+                    and(inArray(categories.id, subcategoryIds), eq(categories.user_id, userId))
+                )
+            }
+            await tx.delete(categories).where(eq(categories.id, categoryId))
+        })
 
         return {
             message: "Categoria removida com sucesso.",
@@ -202,12 +247,12 @@ export class CategoryService {
     }
 
     private static async getAllSubcategoryIds(categoryId: number, userId: number): Promise<number[]> {
-        const children = await prisma.category.findMany({
-            where: { parent_id: categoryId, user_id: userId },
-            select: { id: true }
-        })
+        const children = await db
+            .select({ id: categories.id })
+            .from(categories)
+            .where(and(eq(categories.parent_id, categoryId), eq(categories.user_id, userId)))
 
-        const subcategoryIds: number[] = children.map((c: { id: number }) => c.id)
+        const subcategoryIds: number[] = children.map((c) => c.id)
 
         for (const subId of subcategoryIds) {
             const childIds = await this.getAllSubcategoryIds(subId, userId)
@@ -225,14 +270,7 @@ export class CategoryService {
         valor_total: number
         ultima_utilizacao: Date | null
     }>> {
-        const result = await prisma.$queryRaw<Array<{
-            id: number
-            nome: string
-            tipo: string
-            total_transacoes: bigint
-            valor_total: string
-            ultima_utilizacao: Date | null
-        }>>`
+        const queryResult = await db.execute(sql`
             SELECT
                 c.id,
                 c.nome,
@@ -251,9 +289,18 @@ export class CategoryService {
             ) income_stats ON c.id = income_stats.category_id
             WHERE c.user_id = ${userId}
             ORDER BY total_transacoes DESC
-        `
+        `)
 
-        return result.map((row: { id: number; nome: string; tipo: string; total_transacoes: bigint; valor_total: string; ultima_utilizacao: Date | null }) => ({
+        const result = queryResult.rows as unknown as Array<{
+            id: number
+            nome: string
+            tipo: string
+            total_transacoes: bigint | string
+            valor_total: string
+            ultima_utilizacao: Date | null
+        }>
+
+        return result.map((row) => ({
             id: row.id,
             nome: row.nome,
             tipo: row.tipo as 'despesa' | 'receita',
@@ -267,16 +314,16 @@ export class CategoryService {
         userId: number,
         tipo?: 'despesa' | 'receita'
     ): Promise<Array<Category & { children?: Category[] }>> {
-        const categories = await this.getCategoriesByUser(userId, tipo)
+        const cats = await this.getCategoriesByUser(userId, tipo)
 
         const categoryMap = new Map<number, Category & { children?: Category[] }>()
         const rootCategories: Array<Category & { children?: Category[] }> = []
 
-        categories.forEach(cat => {
+        cats.forEach(cat => {
             categoryMap.set(cat.id, { ...cat, children: [] })
         })
 
-        categories.forEach(cat => {
+        cats.forEach(cat => {
             const categoryWithChildren = categoryMap.get(cat.id)!
 
             if (cat.parent_id) {

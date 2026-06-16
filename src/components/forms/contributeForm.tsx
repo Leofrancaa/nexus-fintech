@@ -53,10 +53,22 @@ export function ContributeForm({ planId, onClose, onContributed }: Props) {
         return;
       }
 
-      toast.success(
-        `Contribuição de R$ ${parsedValor.toFixed(2)} adicionada com sucesso!`,
-        { id: toastId }
-      );
+      // A resposta traz o aporte mensal recalculado após a contribuição.
+      const payload = await res.json().catch(() => null);
+      const novoAporte = payload?.data?.aporte_mensal_necessario as
+        | number
+        | undefined;
+      const status = payload?.data?.status as string | undefined;
+
+      const baseMsg = `Contribuição de R$ ${parsedValor.toFixed(2)} adicionada!`;
+      const extra =
+        status === "Concluído"
+          ? " 🎉 Meta concluída!"
+          : novoAporte !== undefined
+            ? ` Novo aporte mensal: R$ ${novoAporte.toFixed(2)}`
+            : "";
+
+      toast.success(baseMsg + extra, { id: toastId });
       onContributed?.();
       onClose();
     } catch (error) {

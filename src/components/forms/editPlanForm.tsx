@@ -14,6 +14,7 @@ interface Plano {
   meta: number;
   prazo: string;
   descricao?: string;
+  taxa_anual?: number | null;
 }
 
 interface Props {
@@ -27,12 +28,21 @@ export function EditPlanForm({ plano, onClose, onUpdated }: Props) {
   const [meta, setMeta] = useState(plano.meta.toString());
   const [prazo, setPrazo] = useState(plano.prazo);
   const [descricao, setDescricao] = useState(plano.descricao || "");
+  const [taxaAnual, setTaxaAnual] = useState(
+    plano.taxa_anual != null ? String(plano.taxa_anual) : ""
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!nome || !meta || !prazo) {
       toast.error("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    const taxaNum = taxaAnual ? parseFloat(taxaAnual) : null;
+    if (taxaAnual && (isNaN(taxaNum!) || taxaNum! <= 0)) {
+      toast.error("A taxa anual deve ser um valor positivo.");
       return;
     }
 
@@ -45,6 +55,7 @@ export function EditPlanForm({ plano, onClose, onUpdated }: Props) {
           meta: parseFloat(meta),
           prazo,
           descricao,
+          taxa_anual: taxaNum && taxaNum > 0 ? taxaNum : null,
         }),
       });
 
@@ -90,6 +101,19 @@ export function EditPlanForm({ plano, onClose, onUpdated }: Props) {
           value={prazo}
           onChange={setPrazo}
           placeholder="Selecione a data"
+        />
+      </div>
+
+      {/* Taxa anual personalizada */}
+      <div>
+        <Label>Taxa anual personalizada (% a.a.) — opcional</Label>
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder="Deixe em branco para usar a Selic ao vivo"
+          value={taxaAnual}
+          onChange={(e) => setTaxaAnual(e.target.value)}
         />
       </div>
 

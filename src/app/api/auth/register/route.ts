@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcrypt'
-import prisma from '@/server/db/prisma'
+import { and, eq } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { users, inviteCodes } from '@/server/db/schema'
 import { createToken, setAuthCookie, setAuthFlagCookie } from '@/server/lib/auth'
 
 async function markInviteCodeAsUsed(code: string, userId: number): Promise<boolean> {
   try {
-    const result = await prisma.inviteCode.updateMany({
-      where: { code: code.toUpperCase(), is_used: false },
-      data: { is_used: true, used_by: userId, used_at: new Date() },
-    })
-    return result.count > 0
+    const result = await db
+      .update(inviteCodes)
+      .set({ is_used: true, used_by: userId, used_at: new Date() })
+      .where(and(eq(inviteCodes.code, code.toUpperCase()), eq(inviteCodes.is_used, false)))
+      .returning({ id: inviteCodes.id })
+    return result.length > 0
   } catch {
     return false
   }
@@ -27,7 +30,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Código de convite é obrigatório.' }, { status: 400 })
     }
 
-    const invite = await prisma.inviteCode.findFirst({ where: { code: inviteCode.toUpperCase() } })
+    const [invite] = await db
+      .select()
+      .from(inviteCodes)
+      .where(eq(inviteCodes.code, inviteCode.toUpperCase()))
+      .limit(1)
 
     if (!invite) {
       return NextResponse.json({ success: false, error: 'Código de convite inválido.' }, { status: 400 })
@@ -50,24 +57,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Senha deve ter pelo menos 6 caracteres.' }, { status: 400 })
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
+    const [existingUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email.toLowerCase()))
+      .limit(1)
     if (existingUser) {
       return NextResponse.json({ success: false, error: 'E-mail já cadastrado.' }, { status: 409 })
     }
 
     const hashedPassword = await bcrypt.hash(senha, 12)
 
-    const user = await prisma.user.create({
-      data: {
+    const [user] = await db
+      .insert(users)
+      .values({
         nome,
         email: email.toLowerCase(),
         senha: hashedPassword,
         currency: 'BRL',
         accepted_terms: true,
         accepted_terms_at: new Date(),
-      },
-      select: { id: true, nome: true, email: true, currency: true, created_at: true, updated_at: true }
-    })
+      })
+      .returning({
+        id: users.id,
+        nome: users.nome,
+        email: users.email,
+        currency: users.currency,
+        created_at: users.created_at,
+        updated_at: users.updated_at,
+      })
 
     await markInviteCodeAsUsed(inviteCode.toUpperCase(), user.id)
 

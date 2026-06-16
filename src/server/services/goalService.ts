@@ -1,4 +1,6 @@
-import prisma from '@/server/db/prisma'
+import { and, eq, desc, sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { goals } from '@/server/db/schema'
 import { createErrorResponse, isPositiveNumber } from '@/server/utils/helper'
 
 interface Goal {
@@ -39,45 +41,48 @@ export class GoalService {
             throw createErrorResponse("Mês deve estar entre 1 e 12.", 400)
         }
 
-        const existing = await prisma.goal.findFirst({
-            where: { user_id: userId, mes, ano }
-        })
+        const [existing] = await db
+            .select()
+            .from(goals)
+            .where(and(eq(goals.user_id, userId), eq(goals.mes, mes), eq(goals.ano, ano)))
+            .limit(1)
 
         if (existing) {
             throw createErrorResponse("Já existe uma meta para este mês/ano.", 409)
         }
 
-        const result = await prisma.goal.create({
-            data: { user_id: userId, nome, valor_alvo, mes, ano }
-        })
+        const [result] = await db
+            .insert(goals)
+            .values({ user_id: userId, nome, valor_alvo: String(valor_alvo), mes, ano })
+            .returning()
 
-        return {
-            ...result,
-            valor_alvo: Number(result.valor_alvo),
-        } as Goal
+        return { ...result, valor_alvo: Number(result.valor_alvo) } as Goal
     }
 
     static async getGoalsByUser(userId: number, mes?: number, ano?: number): Promise<GoalWithProgress[]> {
-        const goals = await prisma.goal.findMany({
-            where: {
-                user_id: userId,
-                ...(mes !== undefined ? { mes } : {}),
-                ...(ano !== undefined ? { ano } : {}),
-            },
-            orderBy: [{ ano: 'desc' }, { mes: 'desc' }]
-        })
+        const conditions = [eq(goals.user_id, userId)]
+        if (mes !== undefined) conditions.push(eq(goals.mes, mes))
+        if (ano !== undefined) conditions.push(eq(goals.ano, ano))
 
-        return Promise.all(goals.map(async (goal: typeof goals[number]) => {
-            const incomeResult = await prisma.$queryRaw<Array<{ valor_atual: string }>>`
+        const rows = await db
+            .select()
+            .from(goals)
+            .where(and(...conditions))
+            .orderBy(desc(goals.ano), desc(goals.mes))
+
+        return Promise.all(rows.map(async (goal) => {
+            const incomeResult = await db.execute(sql`
                 SELECT COALESCE(SUM(quantidade), 0) as valor_atual
                 FROM incomes
                 WHERE user_id = ${userId}
                   AND EXTRACT(MONTH FROM data) = ${goal.mes}
                   AND EXTRACT(YEAR FROM data) = ${goal.ano}
-            `
+            `)
 
             const valorAlvo = Number(goal.valor_alvo)
-            const valorAtual = Number(incomeResult[0]?.valor_atual || 0)
+            const valorAtual = Number(
+                (incomeResult.rows[0] as { valor_atual?: string } | undefined)?.valor_atual || 0
+            )
             const progresso = valorAlvo > 0 ? (valorAtual / valorAlvo) * 100 : 0
 
             return {
@@ -96,16 +101,15 @@ export class GoalService {
     }
 
     static async getGoalById(goalId: number, userId: number): Promise<Goal | null> {
-        const goal = await prisma.goal.findFirst({
-            where: { id: goalId, user_id: userId }
-        })
+        const [goal] = await db
+            .select()
+            .from(goals)
+            .where(and(eq(goals.id, goalId), eq(goals.user_id, userId)))
+            .limit(1)
 
         if (!goal) return null
 
-        return {
-            ...goal,
-            valor_alvo: Number(goal.valor_alvo),
-        } as Goal
+        return { ...goal, valor_alvo: Number(goal.valor_alvo) } as Goal
     }
 
     static async updateGoal(
@@ -132,41 +136,46 @@ export class GoalService {
             const newMes = mes ?? exists.mes
             const newAno = ano ?? exists.ano
 
-            const conflict = await prisma.goal.findFirst({
-                where: { user_id: userId, mes: newMes, ano: newAno, id: { not: goalId } }
-            })
+            const [conflict] = await db
+                .select()
+                .from(goals)
+                .where(
+                    and(
+                        eq(goals.user_id, userId),
+                        eq(goals.mes, newMes),
+                        eq(goals.ano, newAno),
+                        sql`${goals.id} <> ${goalId}`
+                    )
+                )
+                .limit(1)
 
             if (conflict) {
                 throw createErrorResponse("Já existe uma meta para este mês/ano.", 409)
             }
         }
 
-        const result = await prisma.goal.update({
-            where: { id: goalId },
-            data: {
+        const [result] = await db
+            .update(goals)
+            .set({
                 ...(nome !== undefined ? { nome } : {}),
-                ...(valor_alvo !== undefined ? { valor_alvo } : {}),
+                ...(valor_alvo !== undefined ? { valor_alvo: String(valor_alvo) } : {}),
                 ...(mes !== undefined ? { mes } : {}),
                 ...(ano !== undefined ? { ano } : {}),
-            }
-        })
+            })
+            .where(eq(goals.id, goalId))
+            .returning()
 
-        return {
-            ...result,
-            valor_alvo: Number(result.valor_alvo),
-        } as Goal
+        return { ...result, valor_alvo: Number(result.valor_alvo) } as Goal
     }
 
     static async deleteGoal(goalId: number, userId: number): Promise<{ message: string }> {
-        const exists = await prisma.goal.findFirst({
-            where: { id: goalId, user_id: userId }
-        })
+        const exists = await this.getGoalById(goalId, userId)
 
         if (!exists) {
             throw createErrorResponse("Meta não encontrada.", 404)
         }
 
-        await prisma.goal.delete({ where: { id: goalId } })
+        await db.delete(goals).where(eq(goals.id, goalId))
 
         return { message: "Meta removida com sucesso." }
     }
@@ -178,9 +187,9 @@ export class GoalService {
         total_target: number
         total_achieved: number
     }> {
-        const goals = await this.getGoalsByUser(userId, mes, ano)
+        const goalsList = await this.getGoalsByUser(userId, mes, ano)
 
-        return goals.reduce((acc, goal) => {
+        return goalsList.reduce((acc, goal) => {
             acc.total_goals++
             acc.total_target += goal.valor_alvo
             acc.total_achieved += goal.valor_atual

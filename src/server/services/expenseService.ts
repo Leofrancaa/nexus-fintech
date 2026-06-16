@@ -1,5 +1,6 @@
-import prisma from '@/server/db/prisma'
-import { Prisma } from '@prisma/client'
+import { and, eq, gte, lte, desc, sql, count } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { expenses, cards, cardInvoicesPayments, categories } from '@/server/db/schema'
 import {
     Expense,
     CreateExpenseRequest,
@@ -16,6 +17,9 @@ interface ExpenseWithCategory extends Expense {
     categoria_nome?: string
     cor_categoria?: string
 }
+
+// Tipo de valores para inserção em expenses (numeric → string).
+type ExpenseInsert = typeof expenses.$inferInsert
 
 export class ExpenseService {
     static async createExpense(
@@ -46,11 +50,12 @@ export class ExpenseService {
             }, userId, formattedBaseDate)
         }
 
-        const result = await prisma.expense.create({
-            data: {
+        const [result] = await db
+            .insert(expenses)
+            .values({
                 metodo_pagamento,
                 tipo,
-                quantidade,
+                quantidade: String(quantidade),
                 fixo,
                 data: new Date(`${formattedBaseDate}T12:00:00`),
                 parcelas: parcelas || null,
@@ -59,8 +64,8 @@ export class ExpenseService {
                 card_id: card_id || null,
                 category_id: category_id || null,
                 observacoes: observacoes || null,
-            }
-        })
+            })
+            .returning()
 
         const baseExpense = this.mapToExpense(result)
 
@@ -79,10 +84,15 @@ export class ExpenseService {
         const baseDate = new Date(`${baseDateString}T12:00:00`)
         const { card_id, quantidade, parcelas, tipo } = expenseData
 
-        const card = await prisma.card.findFirst({
-            where: { id: card_id!, user_id: userId },
-            select: { limite_disponivel: true, dia_vencimento: true, dias_fechamento_antes: true }
-        })
+        const [card] = await db
+            .select({
+                limite_disponivel: cards.limite_disponivel,
+                dia_vencimento: cards.dia_vencimento,
+                dias_fechamento_antes: cards.dias_fechamento_antes,
+            })
+            .from(cards)
+            .where(and(eq(cards.id, card_id!), eq(cards.user_id, userId)))
+            .limit(1)
 
         if (!card) {
             throw createErrorResponse("Cartão não encontrado.", 404)
@@ -108,11 +118,12 @@ export class ExpenseService {
         const comp = calculateCompetencia(baseDate, card.dia_vencimento, card.dias_fechamento_antes)
         await this.checkIfInvoicePaid(userId, card_id!, comp.competencia_mes, comp.competencia_ano)
 
-        const result = await prisma.expense.create({
-            data: {
+        const [result] = await db
+            .insert(expenses)
+            .values({
                 metodo_pagamento: expenseData.metodo_pagamento,
                 tipo,
-                quantidade,
+                quantidade: String(quantidade),
                 fixo: expenseData.fixo || false,
                 data: new Date(`${expenseData.data}T12:00:00`),
                 parcelas: parcelas || null,
@@ -123,15 +134,15 @@ export class ExpenseService {
                 observacoes: expenseData.observacoes || null,
                 competencia_mes: comp.competencia_mes,
                 competencia_ano: comp.competencia_ano,
-            }
-        })
+            })
+            .returning()
 
         const baseExpense = this.mapToExpense(result)
 
-        await prisma.card.update({
-            where: { id: card_id! },
-            data: { limite_disponivel: { decrement: Number(quantidade) } }
-        })
+        await db
+            .update(cards)
+            .set({ limite_disponivel: sql`${cards.limite_disponivel} - ${Number(quantidade)}` })
+            .where(eq(cards.id, card_id!))
 
         if (expenseData.fixo) {
             await this.replicateFixedCreditCardExpense(
@@ -152,11 +163,19 @@ export class ExpenseService {
         mes: number,
         ano: number
     ): Promise<void> {
-        const count = await prisma.cardInvoicePayment.count({
-            where: { user_id: userId, card_id: cardId, competencia_mes: mes, competencia_ano: ano }
-        })
+        const [row] = await db
+            .select({ c: count() })
+            .from(cardInvoicesPayments)
+            .where(
+                and(
+                    eq(cardInvoicesPayments.user_id, userId),
+                    eq(cardInvoicesPayments.card_id, cardId),
+                    eq(cardInvoicesPayments.competencia_mes, mes),
+                    eq(cardInvoicesPayments.competencia_ano, ano)
+                )
+            )
 
-        if (count > 0) {
+        if (Number(row?.c ?? 0) > 0) {
             throw createErrorResponse(
                 "Esta fatura já foi paga. Não é possível lançar despesas nessa competência.",
                 400
@@ -186,34 +205,32 @@ export class ExpenseService {
             )
         )
 
-        const results = await prisma.$transaction(
-            parcelasData.map(({ index, purchaseDate, comp }) =>
-                prisma.expense.create({
-                    data: {
-                        metodo_pagamento: expenseData.metodo_pagamento,
-                        tipo: `${tipo} (${index + 1}/${parcelas})`,
-                        quantidade: valorParcela,
-                        fixo: false,
-                        data: new Date(`${formatDate(purchaseDate)}T12:00:00`),
-                        parcelas: parcelas!,
-                        frequencia: expenseData.frequencia || null,
-                        user_id: userId,
-                        card_id: card_id!,
-                        category_id: expenseData.category_id || null,
-                        observacoes: expenseData.observacoes || null,
-                        competencia_mes: comp.competencia_mes,
-                        competencia_ano: comp.competencia_ano,
-                    }
-                })
-            )
-        )
+        const valuesToInsert: ExpenseInsert[] = parcelasData.map(({ index, purchaseDate, comp }) => ({
+            metodo_pagamento: expenseData.metodo_pagamento,
+            tipo: `${tipo} (${index + 1}/${parcelas})`,
+            quantidade: String(valorParcela),
+            fixo: false,
+            data: new Date(`${formatDate(purchaseDate)}T12:00:00`),
+            parcelas: parcelas!,
+            frequencia: expenseData.frequencia || null,
+            user_id: userId,
+            card_id: card_id!,
+            category_id: expenseData.category_id || null,
+            observacoes: expenseData.observacoes || null,
+            competencia_mes: comp.competencia_mes,
+            competencia_ano: comp.competencia_ano,
+        }))
 
-        await prisma.card.update({
-            where: { id: card_id! },
-            data: { limite_disponivel: { decrement: Number(quantidade) } }
+        const results = await db.transaction(async (tx) => {
+            const inserted = await tx.insert(expenses).values(valuesToInsert).returning()
+            await tx
+                .update(cards)
+                .set({ limite_disponivel: sql`${cards.limite_disponivel} - ${Number(quantidade)}` })
+                .where(eq(cards.id, card_id!))
+            return inserted
         })
 
-        return results.map(this.mapToExpense)
+        return results.map((r) => this.mapToExpense(r as unknown as Record<string, unknown>))
     }
 
     private static async replicateFixedCreditCardExpense(
@@ -240,24 +257,27 @@ export class ExpenseService {
 
         const resultados = await Promise.all(
             candidatos.map(async ({ dataRep, comp }) => {
-                const jaFoiPaga = await prisma.cardInvoicePayment.count({
-                    where: {
-                        user_id: userId,
-                        card_id: baseExpense.card_id!,
-                        competencia_mes: comp.competencia_mes,
-                        competencia_ano: comp.competencia_ano
-                    }
-                })
-                return jaFoiPaga === 0 ? { dataRep, comp } : null
+                const [row] = await db
+                    .select({ c: count() })
+                    .from(cardInvoicesPayments)
+                    .where(
+                        and(
+                            eq(cardInvoicesPayments.user_id, userId),
+                            eq(cardInvoicesPayments.card_id, baseExpense.card_id!),
+                            eq(cardInvoicesPayments.competencia_mes, comp.competencia_mes),
+                            eq(cardInvoicesPayments.competencia_ano, comp.competencia_ano)
+                        )
+                    )
+                return Number(row?.c ?? 0) === 0 ? { dataRep, comp } : null
             })
         )
 
-        const replicasData = resultados
+        const replicasData: ExpenseInsert[] = resultados
             .filter((r): r is NonNullable<typeof r> => r !== null)
             .map(({ dataRep, comp }) => ({
                 metodo_pagamento: baseExpense.metodo_pagamento,
                 tipo: baseExpense.tipo,
-                quantidade: baseExpense.quantidade,
+                quantidade: String(baseExpense.quantidade),
                 fixo: true,
                 data: new Date(`${dataRep}T12:00:00`),
                 parcelas: baseExpense.parcelas || null,
@@ -271,7 +291,7 @@ export class ExpenseService {
             }))
 
         if (replicasData.length > 0) {
-            await prisma.expense.createMany({ data: replicasData })
+            await db.insert(expenses).values(replicasData)
         }
     }
 
@@ -286,7 +306,7 @@ export class ExpenseService {
         const ano = baseDate.getFullYear()
         const ehUltimoDiaMes = diaOriginal === 31
 
-        const replicasData = []
+        const replicasData: ExpenseInsert[] = []
         for (let mes = mesOriginal + 1; mes <= 11; mes++) {
             const diasNoMesAlvo = new Date(ano, mes + 1, 0).getDate()
             const diaParaInserir = ehUltimoDiaMes ? diasNoMesAlvo : Math.min(diaOriginal, diasNoMesAlvo)
@@ -295,7 +315,7 @@ export class ExpenseService {
             replicasData.push({
                 metodo_pagamento: baseExpense.metodo_pagamento,
                 tipo: baseExpense.tipo,
-                quantidade: baseExpense.quantidade,
+                quantidade: String(baseExpense.quantidade),
                 fixo: true,
                 data: new Date(`${dataRep}T12:00:00`),
                 parcelas: baseExpense.parcelas || null,
@@ -308,7 +328,7 @@ export class ExpenseService {
         }
 
         if (replicasData.length > 0) {
-            await prisma.expense.createMany({ data: replicasData })
+            await db.insert(expenses).values(replicasData)
         }
     }
 
@@ -317,7 +337,7 @@ export class ExpenseService {
         month: number,
         year: number
     ): Promise<ExpenseWithCategory[]> {
-        const result = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        const queryResult = await db.execute(sql`
             SELECT
                 e.*,
                 c.nome AS categoria_nome,
@@ -328,9 +348,9 @@ export class ExpenseService {
               AND EXTRACT(MONTH FROM e.data) = ${month}
               AND EXTRACT(YEAR FROM e.data) = ${year}
             ORDER BY e.data DESC
-        `
+        `)
 
-        return result.map((row: Record<string, unknown>) => ({
+        return (queryResult.rows as Array<Record<string, unknown>>).map((row) => ({
             ...row,
             quantidade: Number(row.quantidade),
             data: row.data instanceof Date ? formatDate(row.data as Date) : row.data,
@@ -342,36 +362,41 @@ export class ExpenseService {
         startDate: string,
         endDate: string
     ): Promise<ExpenseWithCategory[]> {
-        const expenses = await prisma.expense.findMany({
-            where: {
-                user_id: userId,
-                data: {
-                    gte: new Date(`${startDate}T00:00:00`),
-                    lte: new Date(`${endDate}T23:59:59`),
-                }
-            },
-            include: { category: true },
-            orderBy: { data: 'desc' }
-        })
+        const rows = await db
+            .select({
+                expense: expenses,
+                categoria_nome: categories.nome,
+                cor_categoria: categories.cor,
+            })
+            .from(expenses)
+            .leftJoin(categories, eq(expenses.category_id, categories.id))
+            .where(
+                and(
+                    eq(expenses.user_id, userId),
+                    gte(expenses.data, new Date(`${startDate}T00:00:00`)),
+                    lte(expenses.data, new Date(`${endDate}T23:59:59`))
+                )
+            )
+            .orderBy(desc(expenses.data))
 
-        return expenses.map((e: typeof expenses[number]) => ({
-            ...this.mapToExpense(e as unknown as Record<string, unknown>),
-            category_id: e.category_id ?? undefined,
-            categoria_nome: e.category?.nome,
-            cor_categoria: e.category?.cor,
+        return rows.map((r) => ({
+            ...this.mapToExpense(r.expense as unknown as Record<string, unknown>),
+            category_id: r.expense.category_id ?? undefined,
+            categoria_nome: r.categoria_nome ?? undefined,
+            cor_categoria: r.cor_categoria ?? undefined,
         }))
     }
 
     static async getMonthlyTotal(userId: number, month: number, year: number): Promise<number> {
-        const result = await prisma.$queryRaw<Array<{ total: string }>>`
+        const queryResult = await db.execute(sql`
             SELECT COALESCE(SUM(quantidade), 0) as total
             FROM expenses
             WHERE user_id = ${userId}
               AND EXTRACT(MONTH FROM data) = ${month}
               AND EXTRACT(YEAR FROM data) = ${year}
-        `
+        `)
 
-        return Number(result[0]?.total || 0)
+        return Number((queryResult.rows[0] as { total: string } | undefined)?.total || 0)
     }
 
     static async getTotalByCategory(
@@ -380,16 +405,16 @@ export class ExpenseService {
         month: number,
         year: number
     ): Promise<number> {
-        const result = await prisma.$queryRaw<Array<{ total: string }>>`
+        const queryResult = await db.execute(sql`
             SELECT COALESCE(SUM(quantidade), 0) as total
             FROM expenses
             WHERE user_id = ${userId}
               AND category_id = ${categoryId}
               AND EXTRACT(MONTH FROM data) = ${month}
               AND EXTRACT(YEAR FROM data) = ${year}
-        `
+        `)
 
-        return Number(result[0]?.total || 0)
+        return Number((queryResult.rows[0] as { total: string } | undefined)?.total || 0)
     }
 
     static async getExpenseStats(
@@ -398,16 +423,9 @@ export class ExpenseService {
         year: number,
         categoryId?: number
     ): Promise<{ total: number; fixas: number; transacoes: number; media: number }> {
-        const categoryFilter = categoryId
-            ? Prisma.sql`AND category_id = ${categoryId}`
-            : Prisma.sql``
+        const categoryFilter = categoryId ? sql`AND category_id = ${categoryId}` : sql``
 
-        const result = await prisma.$queryRaw<Array<{
-            total: string
-            fixas: string
-            transacoes: bigint
-            media: string
-        }>>`
+        const queryResult = await db.execute(sql`
             SELECT
                 COALESCE(SUM(quantidade), 0) as total,
                 COALESCE(SUM(CASE WHEN fixo = true THEN quantidade END), 0) as fixas,
@@ -418,9 +436,14 @@ export class ExpenseService {
               AND EXTRACT(MONTH FROM data) = ${month}
               AND EXTRACT(YEAR FROM data) = ${year}
               ${categoryFilter}
-        `
+        `)
 
-        const stats = result[0]
+        const stats = queryResult.rows[0] as {
+            total: string
+            fixas: string
+            transacoes: string | bigint
+            media: string
+        }
         return {
             total: Number(stats.total || 0),
             fixas: Number(stats.fixas || 0),
@@ -434,13 +457,7 @@ export class ExpenseService {
         month: number,
         year: number
     ): Promise<Array<{ id: number; nome: string; cor: string; quantidade: number; total: number; percentual: number }>> {
-        const result = await prisma.$queryRaw<Array<{
-            id: number
-            nome: string
-            cor: string
-            quantidade: string
-            total: string
-        }>>`
+        const queryResult = await db.execute(sql`
             SELECT
                 COALESCE(parent.id, c.id) as id,
                 COALESCE(parent.nome, c.nome) as nome,
@@ -455,11 +472,19 @@ export class ExpenseService {
               AND EXTRACT(YEAR FROM e.data) = ${year}
             GROUP BY COALESCE(parent.id, c.id), COALESCE(parent.nome, c.nome), COALESCE(parent.cor, c.cor)
             ORDER BY total DESC
-        `
+        `)
 
-        const totalGeral = result.reduce((acc: number, r: { id: number; nome: string; cor: string; quantidade: string; total: string }) => acc + Number(r.total), 0)
+        const result = queryResult.rows as unknown as Array<{
+            id: number
+            nome: string
+            cor: string
+            quantidade: string
+            total: string
+        }>
 
-        return result.map((row: { id: number; nome: string; cor: string; quantidade: string; total: string }) => ({
+        const totalGeral = result.reduce((acc, r) => acc + Number(r.total), 0)
+
+        return result.map((row) => ({
             id: row.id,
             nome: row.nome,
             cor: row.cor,
@@ -474,9 +499,11 @@ export class ExpenseService {
         updateData: Partial<CreateExpenseRequest>,
         userId: number
     ): Promise<Expense> {
-        const original = await prisma.expense.findFirst({
-            where: { id: expenseId, user_id: userId }
-        })
+        const [original] = await db
+            .select()
+            .from(expenses)
+            .where(and(eq(expenses.id, expenseId), eq(expenses.user_id, userId)))
+            .limit(1)
 
         if (!original) {
             throw createErrorResponse("Despesa não encontrada.", 404)
@@ -487,75 +514,69 @@ export class ExpenseService {
             throw createErrorResponse("Despesas no cartão de crédito não podem ser editadas.", 400)
         }
 
-        const updateObj: Record<string, unknown> = {}
+        const updateObj: Partial<ExpenseInsert> = {}
 
         if (updateData.metodo_pagamento !== undefined) updateObj.metodo_pagamento = updateData.metodo_pagamento
         if (updateData.tipo !== undefined) updateObj.tipo = updateData.tipo
-        if (updateData.quantidade !== undefined) updateObj.quantidade = updateData.quantidade
+        if (updateData.quantidade !== undefined) updateObj.quantidade = String(updateData.quantidade)
         if (updateData.data !== undefined) updateObj.data = new Date(`${updateData.data}T12:00:00`)
         if (updateData.fixo !== undefined) updateObj.fixo = updateData.fixo
         if (updateData.category_id !== undefined) updateObj.category_id = updateData.category_id
         if (updateData.observacoes !== undefined) updateObj.observacoes = updateData.observacoes
 
         if (Object.keys(updateObj).length === 0) {
-            return this.mapToExpense(original)
+            return this.mapToExpense(original as unknown as Record<string, unknown>)
         }
 
-        const result = await prisma.expense.update({
-            where: { id: expenseId },
-            data: updateObj
-        })
+        const [result] = await db
+            .update(expenses)
+            .set(updateObj)
+            .where(eq(expenses.id, expenseId))
+            .returning()
 
-        return this.mapToExpense(result)
+        return this.mapToExpense(result as unknown as Record<string, unknown>)
     }
 
     static async deleteExpense(
         expenseId: number,
         userId: number
     ): Promise<Expense | Expense[]> {
-        const expense = await prisma.expense.findFirst({
-            where: { id: expenseId, user_id: userId }
-        })
+        const [expense] = await db
+            .select()
+            .from(expenses)
+            .where(and(eq(expenses.id, expenseId), eq(expenses.user_id, userId)))
+            .limit(1)
 
         if (!expense) {
             throw createErrorResponse("Despesa não encontrada.", 404)
         }
 
         if (expense.fixo) {
-            const deleted = await prisma.expense.findMany({
-                where: {
-                    user_id: userId,
-                    tipo: expense.tipo,
-                    quantidade: expense.quantidade,
-                    fixo: true,
-                    data: { gte: expense.data }
-                }
-            })
+            const fixedConditions = and(
+                eq(expenses.user_id, userId),
+                eq(expenses.tipo, expense.tipo),
+                eq(expenses.quantidade, expense.quantidade),
+                eq(expenses.fixo, true),
+                gte(expenses.data, expense.data)
+            )
 
-            await prisma.expense.deleteMany({
-                where: {
-                    user_id: userId,
-                    tipo: expense.tipo,
-                    quantidade: expense.quantidade,
-                    fixo: true,
-                    data: { gte: expense.data }
-                }
-            })
+            const deleted = await db.select().from(expenses).where(fixedConditions)
+            await db.delete(expenses).where(fixedConditions)
 
-            return deleted.map(this.mapToExpense)
+            return deleted.map((d) => this.mapToExpense(d as unknown as Record<string, unknown>))
         }
 
         const metodoNorm = normalize(expense.metodo_pagamento)
         if (metodoNorm.includes("credito") && expense.card_id) {
-            await prisma.card.update({
-                where: { id: expense.card_id },
-                data: { limite_disponivel: { increment: Number(expense.quantidade) } }
-            })
+            await db
+                .update(cards)
+                .set({ limite_disponivel: sql`${cards.limite_disponivel} + ${Number(expense.quantidade)}` })
+                .where(eq(cards.id, expense.card_id))
         }
 
-        await prisma.expense.delete({ where: { id: expenseId } })
+        await db.delete(expenses).where(eq(expenses.id, expenseId))
 
-        return this.mapToExpense(expense)
+        return this.mapToExpense(expense as unknown as Record<string, unknown>)
     }
 
     private static mapToExpense(expense: Record<string, unknown>): Expense {

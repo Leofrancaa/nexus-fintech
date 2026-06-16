@@ -1,44 +1,40 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mockReset } from 'vitest-mock-extended'
-import { prismaMock } from '../mocks/prisma'
+import { describe, it, expect } from 'vitest'
+import { eq } from 'drizzle-orm'
+import { db } from '../mocks/db'
+import * as schema from '@/server/db/schema'
 import { GoalService } from '@/server/services/goalService'
 
 const USER_ID = 1
 
-function makeGoalRecord(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 1,
-    user_id: USER_ID,
-    nome: 'Economizar para férias',
-    valor_alvo: 5000,
-    mes: 6,
-    ano: 2025,
-    created_at: new Date(),
-    updated_at: new Date(),
-    ...overrides,
-  }
+async function seedGoal(overrides: Partial<typeof schema.goals.$inferInsert> = {}) {
+  const [row] = await db
+    .insert(schema.goals)
+    .values({
+      user_id: USER_ID,
+      nome: 'Economizar para férias',
+      valor_alvo: '5000',
+      mes: 6,
+      ano: 2025,
+      ...overrides,
+    })
+    .returning()
+  return row
 }
-
-beforeEach(() => {
-  mockReset(prismaMock)
-  vi.clearAllMocks()
-})
 
 // ─── createGoal ──────────────────────────────────────────────────────────────
 
 describe('GoalService.createGoal', () => {
   it('cria meta com sucesso', async () => {
-    prismaMock.goal.findFirst.mockResolvedValue(null)
-    prismaMock.goal.create.mockResolvedValue(makeGoalRecord() as never)
-
     const result = await GoalService.createGoal(
       { nome: 'Economizar para férias', valor_alvo: 5000, mes: 6, ano: 2025 },
       USER_ID
     )
 
-    expect(prismaMock.goal.create).toHaveBeenCalledOnce()
     expect(result.nome).toBe('Economizar para férias')
     expect(result.valor_alvo).toBe(5000)
+
+    const rows = await db.select().from(schema.goals).where(eq(schema.goals.user_id, USER_ID))
+    expect(rows).toHaveLength(1)
   })
 
   it('lança erro 400 quando mês está fora do range 1-12', async () => {
@@ -58,7 +54,7 @@ describe('GoalService.createGoal', () => {
   })
 
   it('lança erro 409 quando já existe meta para o mesmo mês/ano', async () => {
-    prismaMock.goal.findFirst.mockResolvedValue(makeGoalRecord() as never)
+    await seedGoal({ mes: 6, ano: 2025 })
 
     await expect(
       GoalService.createGoal({ nome: 'Outra meta', valor_alvo: 2000, mes: 6, ano: 2025 }, USER_ID)
@@ -70,49 +66,41 @@ describe('GoalService.createGoal', () => {
 
 describe('GoalService.updateGoal', () => {
   it('atualiza nome da meta com sucesso', async () => {
-    const existing = makeGoalRecord()
-    const updated = makeGoalRecord({ nome: 'Novo nome' })
-    prismaMock.goal.findFirst.mockResolvedValue(existing as never)
-    prismaMock.goal.update.mockResolvedValue(updated as never)
+    const goal = await seedGoal()
 
-    const result = await GoalService.updateGoal(1, { nome: 'Novo nome' }, USER_ID)
+    const result = await GoalService.updateGoal(goal.id, { nome: 'Novo nome' }, USER_ID)
 
-    expect(prismaMock.goal.update).toHaveBeenCalledOnce()
     expect(result.nome).toBe('Novo nome')
   })
 
   it('lança erro 404 quando meta não existe', async () => {
-    prismaMock.goal.findFirst.mockResolvedValue(null)
-
     await expect(
       GoalService.updateGoal(999, { nome: 'X' }, USER_ID)
     ).rejects.toMatchObject({ status: 404 })
   })
 
   it('lança erro 400 quando novo mês é inválido', async () => {
-    prismaMock.goal.findFirst.mockResolvedValue(makeGoalRecord() as never)
+    const goal = await seedGoal()
 
     await expect(
-      GoalService.updateGoal(1, { mes: 13 }, USER_ID)
+      GoalService.updateGoal(goal.id, { mes: 13 }, USER_ID)
     ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('1 e 12') })
   })
 
   it('lança erro 409 quando novo mês/ano já existe em outra meta', async () => {
-    const existing = makeGoalRecord()
-    prismaMock.goal.findFirst
-      .mockResolvedValueOnce(existing as never)  // getGoalById
-      .mockResolvedValueOnce(makeGoalRecord({ id: 2 }) as never) // conflito
+    const goal = await seedGoal({ mes: 7, ano: 2025 })
+    await seedGoal({ mes: 6, ano: 2025 }) // conflito alvo
 
     await expect(
-      GoalService.updateGoal(1, { mes: 6, ano: 2025 }, USER_ID)
+      GoalService.updateGoal(goal.id, { mes: 6, ano: 2025 }, USER_ID)
     ).rejects.toMatchObject({ status: 409 })
   })
 
   it('lança erro 400 quando valor_alvo é negativo', async () => {
-    prismaMock.goal.findFirst.mockResolvedValue(makeGoalRecord() as never)
+    const goal = await seedGoal()
 
     await expect(
-      GoalService.updateGoal(1, { valor_alvo: -500 }, USER_ID)
+      GoalService.updateGoal(goal.id, { valor_alvo: -500 }, USER_ID)
     ).rejects.toMatchObject({ status: 400 })
   })
 })
@@ -121,18 +109,16 @@ describe('GoalService.updateGoal', () => {
 
 describe('GoalService.deleteGoal', () => {
   it('deleta meta com sucesso', async () => {
-    prismaMock.goal.findFirst.mockResolvedValue(makeGoalRecord() as never)
-    prismaMock.goal.delete.mockResolvedValue({} as never)
+    const goal = await seedGoal()
 
-    const result = await GoalService.deleteGoal(1, USER_ID)
+    const result = await GoalService.deleteGoal(goal.id, USER_ID)
 
-    expect(prismaMock.goal.delete).toHaveBeenCalledWith({ where: { id: 1 } })
     expect(result.message).toContain('sucesso')
+    const rows = await db.select().from(schema.goals).where(eq(schema.goals.id, goal.id))
+    expect(rows).toHaveLength(0)
   })
 
   it('lança erro 404 quando meta não existe', async () => {
-    prismaMock.goal.findFirst.mockResolvedValue(null)
-
     await expect(
       GoalService.deleteGoal(999, USER_ID)
     ).rejects.toMatchObject({ status: 404 })
@@ -143,16 +129,15 @@ describe('GoalService.deleteGoal', () => {
 
 describe('GoalService.getGoalStats', () => {
   it('calcula stats corretamente com metas atingidas e em progresso', async () => {
-    // Mock getGoalsByUser (que usa goal.findMany + $queryRaw por goal)
-    prismaMock.goal.findMany.mockResolvedValue([
-      makeGoalRecord({ valor_alvo: 1000 }),
-      makeGoalRecord({ id: 2, valor_alvo: 2000 }),
-    ] as never)
+    // Meta 1: alvo 1000, com 1000 de receita no mês → 100% atingida
+    await seedGoal({ nome: 'Meta1', valor_alvo: '1000', mes: 6, ano: 2025 })
+    // Meta 2: alvo 2000, com 500 de receita → 25% em progresso
+    await seedGoal({ nome: 'Meta2', valor_alvo: '2000', mes: 7, ano: 2025 })
 
-    // $queryRaw retorna receitas do mês para cada meta
-    prismaMock.$queryRaw
-      .mockResolvedValueOnce([{ valor_atual: '1000' }] as never) // meta 1: 100% atingida
-      .mockResolvedValueOnce([{ valor_atual: '500' }] as never)  // meta 2: 25% em progresso
+    await db.insert(schema.incomes).values([
+      { user_id: USER_ID, tipo: 'salario', quantidade: '1000', data: new Date('2025-06-15T12:00:00') },
+      { user_id: USER_ID, tipo: 'salario', quantidade: '500', data: new Date('2025-07-15T12:00:00') },
+    ])
 
     const result = await GoalService.getGoalStats(USER_ID)
 
@@ -164,8 +149,6 @@ describe('GoalService.getGoalStats', () => {
   })
 
   it('retorna zeros quando não há metas', async () => {
-    prismaMock.goal.findMany.mockResolvedValue([] as never)
-
     const result = await GoalService.getGoalStats(USER_ID)
 
     expect(result.total_goals).toBe(0)

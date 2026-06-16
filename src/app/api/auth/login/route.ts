@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcrypt'
-import prisma from '@/server/db/prisma'
+import { eq } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { users } from '@/server/db/schema'
 import { createToken, setAuthCookie, setAuthFlagCookie } from '@/server/lib/auth'
 
 export async function POST(request: NextRequest) {
@@ -11,10 +13,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'E-mail e senha são obrigatórios.' }, { status: 400 })
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-      select: { id: true, nome: true, email: true, senha: true, currency: true, created_at: true, updated_at: true }
-    })
+    const [user] = await db
+      .select({
+        id: users.id,
+        nome: users.nome,
+        email: users.email,
+        senha: users.senha,
+        currency: users.currency,
+        created_at: users.created_at,
+        updated_at: users.updated_at,
+      })
+      .from(users)
+      .where(eq(users.email, email.toLowerCase()))
+      .limit(1)
 
     if (!user || !user.senha) {
       return NextResponse.json({ success: false, error: 'E-mail ou senha incorretos.' }, { status: 401 })

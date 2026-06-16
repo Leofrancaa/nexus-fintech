@@ -17,6 +17,9 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
+  Briefcase,
+  GraduationCap,
+  Heart,
   Settings,
 } from "lucide-react";
 import clsx from "clsx";
@@ -33,6 +36,9 @@ const navItems = [
   { name: "Categorias", href: "/categorias", icon: FolderKanban },
   { name: "Limites e Metas", href: "/limites", icon: Gauge },
   { name: "Planos", href: "/planos", icon: Target },
+  { name: "Carreira", href: "/carreira", icon: Briefcase },
+  { name: "Estudos", href: "/estudos", icon: GraduationCap },
+  { name: "Pessoal", href: "/pessoal", icon: Heart },
   { name: "Manual", href: "/manual", icon: BookOpen },
 ];
 

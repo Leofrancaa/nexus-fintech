@@ -1,4 +1,6 @@
-import prisma from '@/server/db/prisma'
+import { and, eq, gte, lt, desc, sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { incomes, expenses, categories } from '@/server/db/schema'
 import { createErrorResponse } from '@/server/utils/helper'
 
 const CARRYOVER_INCOME_TYPE = 'saldo_anterior'
@@ -33,25 +35,27 @@ export class BalanceCarryoverService {
         const { mes: srcMes, ano: srcAno } = prevMonth(targetMes, targetAno)
 
         const [receitasRaw, despesasRaw] = await Promise.all([
-            prisma.$queryRaw<[{ total: string }]>`
+            db.execute(sql`
                 SELECT COALESCE(SUM(quantidade), 0) AS total
                 FROM incomes
                 WHERE user_id = ${userId}
                   AND tipo != ${CARRYOVER_INCOME_TYPE}
                   AND EXTRACT(MONTH FROM data) = ${srcMes}
                   AND EXTRACT(YEAR FROM data) = ${srcAno}
-            `,
-            prisma.$queryRaw<[{ total: string }]>`
+            `),
+            db.execute(sql`
                 SELECT COALESCE(SUM(quantidade), 0) AS total
                 FROM expenses
                 WHERE user_id = ${userId}
                   AND tipo != ${CARRYOVER_EXPENSE_TYPE}
                   AND EXTRACT(MONTH FROM data) = ${srcMes}
                   AND EXTRACT(YEAR FROM data) = ${srcAno}
-            `,
+            `),
         ])
 
-        const saldo = Number(receitasRaw[0].total) - Number(despesasRaw[0].total)
+        const saldo =
+            Number((receitasRaw.rows[0] as { total: string }).total) -
+            Number((despesasRaw.rows[0] as { total: string }).total)
 
         if (saldo === 0) {
             return { source_mes: srcMes, source_ano: srcAno, saldo: 0, tipo: 'zerado', status: 'sem_saldo' }
@@ -61,10 +65,18 @@ export class BalanceCarryoverService {
         const targetEnd = startOfNextMonth(targetMes, targetAno)
 
         if (saldo > 0) {
-            const existing = await prisma.income.findFirst({
-                where: { user_id: userId, tipo: CARRYOVER_INCOME_TYPE, data: { gte: targetStart, lt: targetEnd } },
-                select: { id: true },
-            })
+            const [existing] = await db
+                .select({ id: incomes.id })
+                .from(incomes)
+                .where(
+                    and(
+                        eq(incomes.user_id, userId),
+                        eq(incomes.tipo, CARRYOVER_INCOME_TYPE),
+                        gte(incomes.data, targetStart),
+                        lt(incomes.data, targetEnd)
+                    )
+                )
+                .limit(1)
             return {
                 source_mes: srcMes, source_ano: srcAno,
                 saldo, tipo: 'positivo',
@@ -72,10 +84,18 @@ export class BalanceCarryoverService {
                 income_id: existing?.id,
             }
         } else {
-            const existing = await prisma.expense.findFirst({
-                where: { user_id: userId, tipo: CARRYOVER_EXPENSE_TYPE, data: { gte: targetStart, lt: targetEnd } },
-                select: { id: true },
-            })
+            const [existing] = await db
+                .select({ id: expenses.id })
+                .from(expenses)
+                .where(
+                    and(
+                        eq(expenses.user_id, userId),
+                        eq(expenses.tipo, CARRYOVER_EXPENSE_TYPE),
+                        gte(expenses.data, targetStart),
+                        lt(expenses.data, targetEnd)
+                    )
+                )
+                .limit(1)
             return {
                 source_mes: srcMes, source_ano: srcAno,
                 saldo, tipo: 'negativo',
@@ -100,36 +120,36 @@ export class BalanceCarryoverService {
         if (info.tipo === 'positivo') {
             const category = await this.getOrCreateCategory(userId, CARRYOVER_INCOME_CATEGORY, 'receita', '#10B981')
 
-            const income = await prisma.income.create({
-                data: {
+            const [income] = await db
+                .insert(incomes)
+                .values({
                     user_id: userId,
                     tipo: CARRYOVER_INCOME_TYPE,
-                    quantidade: info.saldo,
+                    quantidade: String(info.saldo),
                     nota: `Saldo transferido de ${info.source_mes}/${info.source_ano}`,
                     fonte: CARRYOVER_INCOME_CATEGORY,
                     data: targetDate,
                     fixo: false,
                     category_id: category.id,
-                },
-                select: { id: true },
-            })
+                })
+                .returning({ id: incomes.id })
             return { ...info, status: 'aplicado', income_id: income.id }
         } else {
             const category = await this.getOrCreateCategory(userId, CARRYOVER_EXPENSE_CATEGORY, 'despesa', '#EF4444')
 
-            const expense = await prisma.expense.create({
-                data: {
+            const [expense] = await db
+                .insert(expenses)
+                .values({
                     user_id: userId,
                     tipo: CARRYOVER_EXPENSE_TYPE,
-                    quantidade: Math.abs(info.saldo),
+                    quantidade: String(Math.abs(info.saldo)),
                     metodo_pagamento: 'saldo',
                     observacoes: `Débito transferido de ${info.source_mes}/${info.source_ano}`,
                     data: targetDate,
                     fixo: false,
                     category_id: category.id,
-                },
-                select: { id: true },
-            })
+                })
+                .returning({ id: expenses.id })
             return { ...info, status: 'aplicado', expense_id: expense.id }
         }
     }
@@ -142,9 +162,9 @@ export class BalanceCarryoverService {
         }
 
         if (info.income_id) {
-            await prisma.income.delete({ where: { id: info.income_id } })
+            await db.delete(incomes).where(eq(incomes.id, info.income_id))
         } else if (info.expense_id) {
-            await prisma.expense.delete({ where: { id: info.expense_id } })
+            await db.delete(expenses).where(eq(expenses.id, info.expense_id))
         }
     }
 
@@ -155,28 +175,28 @@ export class BalanceCarryoverService {
         tipo: 'positivo' | 'negativo'
         applied_at: Date
     }>> {
-        const [incomes, expenses] = await Promise.all([
-            prisma.income.findMany({
-                where: { user_id: userId, tipo: CARRYOVER_INCOME_TYPE },
-                select: { quantidade: true, data: true, created_at: true },
-                orderBy: { data: 'desc' },
-            }),
-            prisma.expense.findMany({
-                where: { user_id: userId, tipo: CARRYOVER_EXPENSE_TYPE },
-                select: { quantidade: true, data: true, created_at: true },
-                orderBy: { data: 'desc' },
-            }),
+        const [incomeRows, expenseRows] = await Promise.all([
+            db
+                .select({ quantidade: incomes.quantidade, data: incomes.data, created_at: incomes.created_at })
+                .from(incomes)
+                .where(and(eq(incomes.user_id, userId), eq(incomes.tipo, CARRYOVER_INCOME_TYPE)))
+                .orderBy(desc(incomes.data)),
+            db
+                .select({ quantidade: expenses.quantidade, data: expenses.data, created_at: expenses.created_at })
+                .from(expenses)
+                .where(and(eq(expenses.user_id, userId), eq(expenses.tipo, CARRYOVER_EXPENSE_TYPE)))
+                .orderBy(desc(expenses.data)),
         ])
 
         const result = [
-            ...incomes.map((i: { data: Date; quantidade: unknown; created_at: Date }) => ({
+            ...incomeRows.map((i) => ({
                 mes: i.data.getMonth() + 1,
                 ano: i.data.getFullYear(),
                 saldo: Number(i.quantidade),
                 tipo: 'positivo' as const,
                 applied_at: i.created_at,
             })),
-            ...expenses.map((e: { data: Date; quantidade: unknown; created_at: Date }) => ({
+            ...expenseRows.map((e) => ({
                 mes: e.data.getMonth() + 1,
                 ano: e.data.getFullYear(),
                 saldo: -Number(e.quantidade),
@@ -194,13 +214,19 @@ export class BalanceCarryoverService {
         tipo: 'receita' | 'despesa',
         cor: string
     ) {
-        const existing = await prisma.category.findFirst({
-            where: { user_id: userId, nome, tipo },
-        })
+        const [existing] = await db
+            .select()
+            .from(categories)
+            .where(
+                and(eq(categories.user_id, userId), eq(categories.nome, nome), eq(categories.tipo, tipo))
+            )
+            .limit(1)
         if (existing) return existing
 
-        return prisma.category.create({
-            data: { user_id: userId, nome, tipo, cor },
-        })
+        const [created] = await db
+            .insert(categories)
+            .values({ user_id: userId, nome, tipo, cor })
+            .returning()
+        return created
     }
 }

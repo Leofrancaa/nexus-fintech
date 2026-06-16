@@ -1,4 +1,6 @@
-import prisma from '@/server/db/prisma'
+import { eq, sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { users } from '@/server/db/schema'
 import { createErrorResponse } from '@/server/utils/helper'
 
 type SupportedCurrency = 'BRL' | 'USD' | 'EUR' | 'GBP'
@@ -31,10 +33,7 @@ export class CurrencyService {
             )
         }
 
-        await prisma.user.update({
-            where: { id: userId },
-            data: { currency }
-        })
+        await db.update(users).set({ currency }).where(eq(users.id, userId))
 
         return {
             message: `Moeda atualizada para ${currency} com sucesso.`,
@@ -46,10 +45,11 @@ export class CurrencyService {
         currency: SupportedCurrency
         currency_info: CurrencyInfo
     }> {
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { currency: true }
-        })
+        const [user] = await db
+            .select({ currency: users.currency })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1)
 
         const userCurrency = ((user?.currency) || 'BRL') as SupportedCurrency
         const currencyInfo = this.SUPPORTED_CURRENCIES.find(c => c.code === userCurrency) || this.SUPPORTED_CURRENCIES[0]
@@ -152,20 +152,20 @@ export class CurrencyService {
         const currentMonth = now.getMonth() + 1
         const currentYear = now.getFullYear()
 
-        const result = await prisma.$queryRaw<Array<{
-            total_income: string
-            total_expenses: string
-            month_income: string
-            month_expenses: string
-        }>>`
+        const queryResult = await db.execute(sql`
             SELECT
                 COALESCE((SELECT SUM(quantidade) FROM incomes WHERE user_id = ${userId}), 0) as total_income,
                 COALESCE((SELECT SUM(quantidade) FROM expenses WHERE user_id = ${userId}), 0) as total_expenses,
                 COALESCE((SELECT SUM(quantidade) FROM incomes WHERE user_id = ${userId} AND EXTRACT(MONTH FROM data) = ${currentMonth} AND EXTRACT(YEAR FROM data) = ${currentYear}), 0) as month_income,
                 COALESCE((SELECT SUM(quantidade) FROM expenses WHERE user_id = ${userId} AND EXTRACT(MONTH FROM data) = ${currentMonth} AND EXTRACT(YEAR FROM data) = ${currentYear}), 0) as month_expenses
-        `
+        `)
 
-        const data = result[0]
+        const data = queryResult.rows[0] as {
+            total_income: string
+            total_expenses: string
+            month_income: string
+            month_expenses: string
+        }
         const totalIncome = Number(data.total_income)
         const totalExpenses = Number(data.total_expenses)
         const monthIncome = Number(data.month_income)

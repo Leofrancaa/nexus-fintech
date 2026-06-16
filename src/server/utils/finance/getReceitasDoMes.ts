@@ -1,4 +1,5 @@
-import prisma from '@/server/db/prisma'
+import { sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
 
 export interface ReceitasDoMesResult {
     id: number
@@ -31,12 +32,13 @@ export const getReceitasDoMes = async (
     mes: number,
     ano: number
 ): Promise<ReceitasDoMesResult[]> => {
-    const rows = await prisma.$queryRaw<RawRow[]>`
+    const result = await db.execute(sql`
         SELECT * FROM incomes
         WHERE user_id = ${user_id}
         AND EXTRACT(MONTH FROM data) = ${mes}
         AND EXTRACT(YEAR FROM data) = ${ano}
-    `
+    `)
+    const rows = result.rows as unknown as RawRow[]
 
     return rows.map((row: RawRow) => ({
         id: row.id,

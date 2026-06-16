@@ -1,4 +1,5 @@
-import prisma from '@/server/db/prisma'
+import { sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
 
 export interface CartoesAVencerResult {
     id: number
@@ -27,7 +28,7 @@ export const getCartoesAVencer = async (user_id: number): Promise<CartoesAVencer
         dias.push(dataTemp.getDate())
     }
 
-    const rows = await prisma.$queryRaw<RawRow[]>`
+    const result = await db.execute(sql`
         SELECT
             id, nome, limite,
             (SELECT COALESCE(SUM(quantidade), 0)
@@ -36,7 +37,8 @@ export const getCartoesAVencer = async (user_id: number): Promise<CartoesAVencer
             dia_vencimento
         FROM cards
         WHERE user_id = ${user_id} AND dia_vencimento = ANY(${dias}::int[])
-    `
+    `)
+    const rows = result.rows as unknown as RawRow[]
 
     return rows.map((row: RawRow) => ({
         id: row.id,

@@ -1,7 +1,12 @@
-import { beforeEach } from 'vitest'
-import { mockReset } from 'vitest-mock-extended'
-import { prismaMock } from './mocks/prisma'
+import { beforeAll, beforeEach } from 'vitest'
+import { applySchema, resetDb } from './mocks/db'
 
-beforeEach(() => {
-  mockReset(prismaMock)
+// Cria o schema uma vez antes de toda a suíte.
+beforeAll(async () => {
+  await applySchema()
+})
+
+// Limpa os dados antes de cada teste para garantir isolamento.
+beforeEach(async () => {
+  await resetDb()
 })

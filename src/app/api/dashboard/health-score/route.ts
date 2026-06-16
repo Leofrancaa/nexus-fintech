@@ -2,7 +2,9 @@ import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorizedResponse } from '@/server/lib/auth'
 import { ok, apiError } from '@/server/lib/apiResponse'
 import { getComparativoMensal, getCartoesEstourados } from '@/server/utils/finance/index'
-import prisma from '@/server/db/prisma'
+import { and, eq, ne, sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { thresholds as thresholdsTable, plans } from '@/server/db/schema'
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,8 +18,8 @@ export async function GET(request: NextRequest) {
     const [comparativo, cartoesEstourados, thresholds, thresholdViolations, planos, faturasPendentes] = await Promise.all([
       getComparativoMensal(user.id, mes, ano),
       getCartoesEstourados(user.id),
-      prisma.threshold.findMany({ where: { user_id: user.id } }),
-      prisma.$queryRaw<Array<{ count: bigint }>>`
+      db.select().from(thresholdsTable).where(eq(thresholdsTable.user_id, user.id)),
+      db.execute(sql`
         SELECT COUNT(*) as count
         FROM thresholds t
         JOIN (
@@ -30,9 +32,9 @@ export async function GET(request: NextRequest) {
         ) e ON e.category_id = t.category_id
         WHERE t.user_id = ${user.id}
           AND e.total > t.valor
-      `,
-      prisma.plan.findMany({ where: { user_id: user.id, status: { not: 'Concluído' } } }),
-      prisma.$queryRaw<Array<{ count: bigint }>>`
+      `),
+      db.select().from(plans).where(and(eq(plans.user_id, user.id), ne(plans.status, 'Concluído'))),
+      db.execute(sql`
         SELECT COUNT(*) as count
         FROM expenses e
         LEFT JOIN card_invoices_payments p
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
           AND e.competencia_ano IS NOT NULL
           AND (e.competencia_ano < ${ano} OR (e.competencia_ano = ${ano} AND e.competencia_mes < ${mes}))
           AND p.id IS NULL
-      `
+      `)
     ])
 
     const scores: Record<string, { pontos: number; descricao: string }> = {}
@@ -63,7 +65,7 @@ export async function GET(request: NextRequest) {
         : `${cartoesEstourados.length} cartão(ões) com limite crítico`
     }
 
-    const violacoesCount = Number((thresholdViolations[0] as { count: bigint }).count)
+    const violacoesCount = Number((thresholdViolations.rows[0] as { count: string }).count)
     scores.thresholds = {
       pontos: thresholds.length === 0 ? 10 : violacoesCount === 0 ? 20 : 0,
       descricao: thresholds.length === 0
@@ -73,7 +75,7 @@ export async function GET(request: NextRequest) {
           : `${violacoesCount} limite(s) de gasto excedido(s)`
     }
 
-    const planosComProgresso = planos.filter((p: { total_contribuido: unknown }) => Number(p.total_contribuido) > 0)
+    const planosComProgresso = planos.filter((p) => Number(p.total_contribuido) > 0)
     scores.planos = {
       pontos: planosComProgresso.length > 0 ? 20 : (planos.length > 0 ? 10 : 0),
       descricao: planosComProgresso.length > 0
@@ -81,7 +83,7 @@ export async function GET(request: NextRequest) {
         : planos.length > 0 ? 'Planos criados mas sem contribuições' : 'Nenhum plano de poupança ativo'
     }
 
-    const faturasPendentesCount = Number((faturasPendentes[0] as { count: bigint }).count)
+    const faturasPendentesCount = Number((faturasPendentes.rows[0] as { count: string }).count)
     scores.faturas = {
       pontos: faturasPendentesCount === 0 ? 20 : 0,
       descricao: faturasPendentesCount === 0

@@ -1,5 +1,6 @@
-import { Prisma } from '@prisma/client'
-import prisma from '@/server/db/prisma'
+import { and, eq, desc, sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { cards, expenses, cardInvoicesPayments } from '@/server/db/schema'
 import {
     Card,
     CreateCardRequest,
@@ -53,19 +54,20 @@ export class CardService {
         const diaVencimentoFinal = isDebito ? 1 : dia_vencimento
         const diasFechamentoAntesFinal = isDebito ? 1 : dias_fechamento_antes
 
-        const result = await prisma.card.create({
-            data: {
+        const [result] = await db
+            .insert(cards)
+            .values({
                 nome,
                 tipo,
                 numero,
                 cor: cor || '#6B7280',
-                limite,
-                limite_disponivel: limite,
+                limite: String(limite),
+                limite_disponivel: String(limite),
                 dia_vencimento: diaVencimentoFinal!,
                 dias_fechamento_antes: diasFechamentoAntesFinal!,
                 user_id: userId,
-            }
-        })
+            })
+            .returning()
 
         return this.mapToCard(result)
     }
@@ -74,7 +76,7 @@ export class CardService {
         const currentMonth = new Date().getMonth() + 1
         const currentYear = new Date().getFullYear()
 
-        const result = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        const queryResult = await db.execute(sql`
             SELECT
                 c.*,
                 COALESCE(SUM(e.quantidade), 0) AS gasto_total,
@@ -90,9 +92,9 @@ export class CardService {
             WHERE c.user_id = ${userId}
             GROUP BY c.id
             ORDER BY c.id DESC
-        `
+        `)
 
-        return result.map((card: Record<string, unknown>) => {
+        return (queryResult.rows as Array<Record<string, unknown>>).map((card) => {
             const limite = Number(card.limite)
             const gastoTotal = Number(card.gasto_total)
             const limiteDisponivel = Number(card.limite_disponivel)
@@ -107,9 +109,11 @@ export class CardService {
     }
 
     static async getCardById(cardId: number, userId: number): Promise<Card | null> {
-        const card = await prisma.card.findFirst({
-            where: { id: cardId, user_id: userId }
-        })
+        const [card] = await db
+            .select()
+            .from(cards)
+            .where(and(eq(cards.id, cardId), eq(cards.user_id, userId)))
+            .limit(1)
 
         return card ? this.mapToCard(card) : null
     }
@@ -148,37 +152,43 @@ export class CardService {
 
             const novoLimiteDisponivel = Math.max(Number(limite) - Number(saldoEmAberto), 0)
 
-            const result = await prisma.card.update({
-                where: { id: cardId },
-                data: {
+            const [result] = await db
+                .update(cards)
+                .set({
                     ...(nome !== undefined ? { nome } : {}),
                     ...(tipo !== undefined ? { tipo } : {}),
                     ...(numero !== undefined ? { numero } : {}),
                     ...(cor !== undefined ? { cor } : {}),
-                    limite,
-                    limite_disponivel: novoLimiteDisponivel,
+                    limite: String(limite),
+                    limite_disponivel: String(novoLimiteDisponivel),
                     ...(dia_vencimento !== undefined ? { dia_vencimento } : {}),
                     ...(dias_fechamento_antes !== undefined ? { dias_fechamento_antes } : {}),
-                }
-            })
+                })
+                .where(eq(cards.id, cardId))
+                .returning()
 
             return this.mapToCard(result)
         }
 
-        const exists = await prisma.card.findFirst({ where: { id: cardId, user_id: userId } })
+        const [exists] = await db
+            .select()
+            .from(cards)
+            .where(and(eq(cards.id, cardId), eq(cards.user_id, userId)))
+            .limit(1)
         if (!exists) throw createErrorResponse("Cartão não encontrado.", 404)
 
-        const result = await prisma.card.update({
-            where: { id: cardId },
-            data: {
+        const [result] = await db
+            .update(cards)
+            .set({
                 ...(nome !== undefined ? { nome } : {}),
                 ...(tipo !== undefined ? { tipo } : {}),
                 ...(numero !== undefined ? { numero } : {}),
                 ...(cor !== undefined ? { cor } : {}),
                 ...(dia_vencimento !== undefined ? { dia_vencimento } : {}),
                 ...(dias_fechamento_antes !== undefined ? { dias_fechamento_antes } : {}),
-            }
-        })
+            })
+            .where(eq(cards.id, cardId))
+            .returning()
 
         return this.mapToCard(result)
     }
@@ -198,16 +208,20 @@ export class CardService {
             return { message: "Cartão e todas as despesas anteriores vinculadas a ele foram excluídos com sucesso." }
         }
 
-        const exists = await prisma.card.findFirst({ where: { id: cardId, user_id: userId } })
+        const [exists] = await db
+            .select()
+            .from(cards)
+            .where(and(eq(cards.id, cardId), eq(cards.user_id, userId)))
+            .limit(1)
         if (!exists) throw createErrorResponse("Cartão não encontrado.", 404)
 
-        await prisma.card.delete({ where: { id: cardId } })
+        await db.delete(cards).where(eq(cards.id, cardId))
 
         return { message: "Cartão removido com sucesso." }
     }
 
     static async getSaldoEmAberto(cardId: number, userId: number): Promise<number> {
-        const result = await prisma.$queryRaw<Array<{ aberto: string }>>`
+        const queryResult = await db.execute(sql`
             SELECT COALESCE(SUM(e.quantidade), 0) AS aberto
             FROM expenses e
             LEFT JOIN card_invoices_payments p
@@ -218,41 +232,47 @@ export class CardService {
             WHERE e.user_id = ${userId}
               AND e.card_id = ${cardId}
               AND p.id IS NULL
-        `
+        `)
 
-        return Number(result[0].aberto)
+        return Number((queryResult.rows[0] as { aberto: string }).aberto)
     }
 
     static async hasCurrentMonthExpenses(cardId: number, userId: number): Promise<boolean> {
-        const result = await prisma.$queryRaw<Array<{ count: bigint }>>`
+        const queryResult = await db.execute(sql`
             SELECT COUNT(*) as count FROM expenses
             WHERE card_id = ${cardId} AND user_id = ${userId}
               AND EXTRACT(MONTH FROM data) = EXTRACT(MONTH FROM CURRENT_DATE)
               AND EXTRACT(YEAR FROM data) = EXTRACT(YEAR FROM CURRENT_DATE)
-        `
+        `)
 
-        return Number(result[0].count) > 0
+        return Number((queryResult.rows[0] as { count: string }).count) > 0
     }
 
     static async hasPastExpenses(cardId: number, userId: number): Promise<boolean> {
-        const result = await prisma.$queryRaw<Array<{ count: bigint }>>`
+        const queryResult = await db.execute(sql`
             SELECT COUNT(*) as count FROM expenses
             WHERE card_id = ${cardId} AND user_id = ${userId}
               AND (EXTRACT(MONTH FROM data) != EXTRACT(MONTH FROM CURRENT_DATE)
                 OR EXTRACT(YEAR FROM data) != EXTRACT(YEAR FROM CURRENT_DATE))
-        `
+        `)
 
-        return Number(result[0].count) > 0
+        return Number((queryResult.rows[0] as { count: string }).count) > 0
     }
 
     static async deleteCardAndExpenses(cardId: number, userId: number): Promise<void> {
-        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-            const exists = await tx.card.findFirst({ where: { id: cardId, user_id: userId } })
+        await db.transaction(async (tx) => {
+            const [exists] = await tx
+                .select()
+                .from(cards)
+                .where(and(eq(cards.id, cardId), eq(cards.user_id, userId)))
+                .limit(1)
             if (!exists) throw createErrorResponse("Cartão não encontrado.", 404)
 
-            await tx.expense.deleteMany({ where: { card_id: cardId, user_id: userId } })
-            await tx.cardInvoicePayment.deleteMany({ where: { card_id: cardId, user_id: userId } })
-            await tx.card.delete({ where: { id: cardId } })
+            await tx.delete(expenses).where(and(eq(expenses.card_id, cardId), eq(expenses.user_id, userId)))
+            await tx
+                .delete(cardInvoicesPayments)
+                .where(and(eq(cardInvoicesPayments.card_id, cardId), eq(cardInvoicesPayments.user_id, userId)))
+            await tx.delete(cards).where(eq(cards.id, cardId))
         })
     }
 
@@ -269,21 +289,15 @@ export class CardService {
         const currentMonth = now.getMonth() + 1
         const currentYear = now.getFullYear()
 
-        const card = await prisma.card.findFirst({
-            where: { id: cardId, user_id: userId }
-        })
+        const [card] = await db
+            .select()
+            .from(cards)
+            .where(and(eq(cards.id, cardId), eq(cards.user_id, userId)))
+            .limit(1)
 
         if (!card) throw createErrorResponse("Cartão não encontrado.", 404)
 
-        const result = await prisma.$queryRaw<Array<{
-            id: number
-            tipo: string
-            quantidade: string
-            competencia_mes: number
-            competencia_ano: number
-            parcelas: number
-            observacoes: string | null
-        }>>`
+        const queryResult = await db.execute(sql`
             SELECT id, tipo, quantidade, competencia_mes, competencia_ano, parcelas, observacoes
             FROM expenses
             WHERE card_id = ${cardId}
@@ -295,9 +309,19 @@ export class CardService {
                   OR (competencia_ano = ${currentYear} AND competencia_mes >= ${currentMonth})
               )
             ORDER BY competencia_ano ASC, competencia_mes ASC
-        `
+        `)
 
-        return result.map((r: { id: number; tipo: string; quantidade: string; competencia_mes: number; competencia_ano: number; parcelas: number; observacoes: string | null }) => ({
+        const result = queryResult.rows as unknown as Array<{
+            id: number
+            tipo: string
+            quantidade: string
+            competencia_mes: number
+            competencia_ano: number
+            parcelas: number
+            observacoes: string | null
+        }>
+
+        return result.map((r) => ({
             ...r,
             quantidade: Number(r.quantidade),
         }))

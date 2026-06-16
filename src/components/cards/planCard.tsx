@@ -18,6 +18,14 @@ interface Plano {
   meta: number;
   total_contribuido: number;
   prazo: string;
+  taxa_anual?: number | null;
+  // Campos calculados no servidor (fonte única de verdade)
+  status?: string;
+  progresso?: number;
+  aporte_mensal_necessario?: number;
+  taxa_utilizada?: number;
+  taxa_fonte?: "custom" | "selic" | "fallback";
+  meses_restantes?: number;
 }
 
 interface PlanCardProps {
@@ -25,34 +33,48 @@ interface PlanCardProps {
   onRefresh?: () => void;
 }
 
+// Cor a partir do status (mesmas faixas do servidor).
+function statusColor(status: string): string {
+  switch (status) {
+    case "Concluído":
+      return "#059669";
+    case "Quase lá":
+      return "#f59e0b";
+    case "Em progresso":
+      return "#3b82f6";
+    default:
+      return "#6b7280";
+  }
+}
+
 export default function PlanCard({ plano, onRefresh }: PlanCardProps) {
   const [editando, setEditando] = useState<Plano | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const router = useRouter();
 
-  const progresso = (plano.total_contribuido / plano.meta) * 100;
-  const restante = plano.meta - plano.total_contribuido;
+  // Prefere valores do servidor; cai para cálculo local apenas como fallback.
+  const progresso =
+    plano.progresso ??
+    (plano.meta > 0 ? (plano.total_contribuido / plano.meta) * 100 : 0);
+  const restante = Math.max(plano.meta - plano.total_contribuido, 0);
+  const status =
+    plano.status ??
+    (progresso >= 100
+      ? "Concluído"
+      : progresso >= 80
+        ? "Quase lá"
+        : progresso > 0
+          ? "Em progresso"
+          : "Iniciando");
 
-  const getStatus = () => {
-    if (progresso >= 100) return "Concluído";
-    if (progresso >= 70) return "Quase lá";
-    if (progresso >= 30) return "Em progresso";
-    return "Iniciando";
-  };
-
-  const getStatusColor = () => {
-    if (progresso >= 100) return "#059669";
-    if (progresso >= 70) return "#f59e0b";
-    if (progresso >= 30) return "#3b82f6";
-    return "#6b7280";
-  };
-
-  const getProgressBarColor = () => {
-    if (progresso >= 100) return "#10b981";
-    if (progresso >= 70) return "#f59e0b";
-    if (progresso >= 30) return "#3b82f6";
-    return "#6b7280";
-  };
+  const aporte = plano.aporte_mensal_necessario;
+  const taxa = plano.taxa_utilizada;
+  const taxaFonteLabel =
+    plano.taxa_fonte === "custom"
+      ? "taxa personalizada"
+      : plano.taxa_fonte === "selic"
+        ? "Selic"
+        : "taxa estimada";
 
   const handleDelete = async () => {
     try {
@@ -100,9 +122,9 @@ export default function PlanCard({ plano, onRefresh }: PlanCardProps) {
 
           <span
             className="text-xs px-3 py-1 rounded-full font-medium"
-            style={{ backgroundColor: getStatusColor(), color: "#fff" }}
+            style={{ backgroundColor: statusColor(status), color: "#fff" }}
           >
-            {getStatus()}
+            {status}
           </span>
         </div>
 
@@ -119,7 +141,7 @@ export default function PlanCard({ plano, onRefresh }: PlanCardProps) {
               className="h-2 rounded-full transition-all"
               style={{
                 width: `${Math.min(progresso, 100)}%`,
-                backgroundColor: getProgressBarColor(),
+                backgroundColor: statusColor(status),
               }}
             />
           </div>
@@ -128,6 +150,31 @@ export default function PlanCard({ plano, onRefresh }: PlanCardProps) {
             {progresso.toFixed(1)}%
           </p>
         </div>
+
+        {/* Destaque: aporte mensal necessário */}
+        {aporte !== undefined && status !== "Concluído" && (
+          <div
+            className="rounded-lg p-3 my-2"
+            style={{ backgroundColor: "var(--progress-bg)" }}
+          >
+            <p className="text-xs text-[var(--plan-card-text)]">
+              Aporte mensal necessário
+            </p>
+            <p className="text-lg font-bold text-cyan-500">
+              {formatCurrency(aporte)}
+              <span className="text-xs font-normal text-[var(--plan-card-text)]">
+                {" "}
+                / mês
+              </span>
+            </p>
+            <p className="text-[11px] text-[var(--plan-card-text)]">
+              {taxa !== undefined ? `${taxa.toFixed(2)}% a.a. (${taxaFonteLabel})` : ""}
+              {plano.meses_restantes !== undefined
+                ? ` · ${plano.meses_restantes} ${plano.meses_restantes === 1 ? "mês" : "meses"} restantes`
+                : ""}
+            </p>
+          </div>
+        )}
 
         {/* Valores */}
         <div className="grid grid-cols-2 gap-4 text-md">

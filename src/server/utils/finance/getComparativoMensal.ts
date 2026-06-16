@@ -1,4 +1,5 @@
-import prisma from '@/server/db/prisma'
+import { sql } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
 
 interface TotalRow {
     total: string | number
@@ -18,32 +19,35 @@ export const getComparativoMensal = async (
     const anoAnterior = mesAtual === 1 ? anoAtual - 1 : anoAtual
 
     const [receitaAtual, receitaAnterior, despesaAtual, despesaAnterior] = await Promise.all([
-        prisma.$queryRaw<TotalRow[]>`
+        db.execute(sql`
             SELECT COALESCE(SUM(quantidade), 0) as total FROM incomes
             WHERE user_id = ${user_id} AND EXTRACT(MONTH FROM data) = ${mesAtual} AND EXTRACT(YEAR FROM data) = ${anoAtual}
-        `,
-        prisma.$queryRaw<TotalRow[]>`
+        `),
+        db.execute(sql`
             SELECT COALESCE(SUM(quantidade), 0) as total FROM incomes
             WHERE user_id = ${user_id} AND EXTRACT(MONTH FROM data) = ${mesAnterior} AND EXTRACT(YEAR FROM data) = ${anoAnterior}
-        `,
-        prisma.$queryRaw<TotalRow[]>`
+        `),
+        db.execute(sql`
             SELECT COALESCE(SUM(quantidade), 0) as total FROM expenses
             WHERE user_id = ${user_id} AND EXTRACT(MONTH FROM data) = ${mesAtual} AND EXTRACT(YEAR FROM data) = ${anoAtual}
-        `,
-        prisma.$queryRaw<TotalRow[]>`
+        `),
+        db.execute(sql`
             SELECT COALESCE(SUM(quantidade), 0) as total FROM expenses
             WHERE user_id = ${user_id} AND EXTRACT(MONTH FROM data) = ${mesAnterior} AND EXTRACT(YEAR FROM data) = ${anoAnterior}
-        `,
+        `),
     ])
+
+    const total = (r: { rows: unknown[] }): number =>
+        Number((r.rows[0] as TotalRow | undefined)?.total ?? 0)
 
     return {
         receitas: {
-            atual: Number(receitaAtual[0]?.total ?? 0),
-            anterior: Number(receitaAnterior[0]?.total ?? 0),
+            atual: total(receitaAtual),
+            anterior: total(receitaAnterior),
         },
         despesas: {
-            atual: Number(despesaAtual[0]?.total ?? 0),
-            anterior: Number(despesaAnterior[0]?.total ?? 0),
+            atual: total(despesaAtual),
+            anterior: total(despesaAnterior),
         },
     }
 }

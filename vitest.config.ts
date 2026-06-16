@@ -6,6 +6,9 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     setupFiles: ['./src/server/__tests__/setup.ts'],
+    // Cada arquivo de teste cria um Postgres efêmero (PGlite/WASM). Rodar os
+    // arquivos em série evita o pico de memória de várias instâncias paralelas.
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

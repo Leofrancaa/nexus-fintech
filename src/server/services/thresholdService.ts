@@ -1,4 +1,6 @@
-import prisma from '@/server/db/prisma'
+import { and, eq, asc, sql, count, sum } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { thresholds, categories } from '@/server/db/schema'
 import {
     Threshold,
     CreateThresholdRequest,
@@ -40,9 +42,11 @@ export class ThresholdService {
             throw createErrorResponse("Category ID e valor positivo são obrigatórios.", 400)
         }
 
-        const category = await prisma.category.findFirst({
-            where: { id: category_id, user_id: userId }
-        })
+        const [category] = await db
+            .select()
+            .from(categories)
+            .where(and(eq(categories.id, category_id), eq(categories.user_id, userId)))
+            .limit(1)
 
         if (!category) {
             throw createErrorResponse("Categoria não encontrada.", 404)
@@ -52,23 +56,38 @@ export class ThresholdService {
             throw createErrorResponse("Limites só podem ser definidos para categorias de despesa.", 400)
         }
 
-        const result = await prisma.threshold.upsert({
-            where: { user_id_category_id: { user_id: userId, category_id } },
-            update: { valor },
-            create: { user_id: userId, category_id, valor }
-        })
+        const [result] = await db
+            .insert(thresholds)
+            .values({ user_id: userId, category_id, valor: String(valor) })
+            .onConflictDoUpdate({
+                target: [thresholds.user_id, thresholds.category_id],
+                set: { valor: String(valor) },
+            })
+            .returning()
 
         return { ...result, valor: Number(result.valor) } as unknown as Threshold
     }
 
     static async getThresholdsByUser(userId: number): Promise<ThresholdWithCategory[]> {
-        const thresholds = await prisma.threshold.findMany({
-            where: { user_id: userId },
-            include: { category: true },
-            orderBy: { category_id: 'asc' }
-        })
+        const rows = await db
+            .select({
+                id: thresholds.id,
+                user_id: thresholds.user_id,
+                category_id: thresholds.category_id,
+                valor: thresholds.valor,
+                created_at: thresholds.created_at,
+                updated_at: thresholds.updated_at,
+                cat_id: categories.id,
+                cat_nome: categories.nome,
+                cat_cor: categories.cor,
+                cat_tipo: categories.tipo,
+            })
+            .from(thresholds)
+            .innerJoin(categories, eq(thresholds.category_id, categories.id))
+            .where(eq(thresholds.user_id, userId))
+            .orderBy(asc(thresholds.category_id))
 
-        return thresholds.map((t: typeof thresholds[number]) => ({
+        return rows.map((t) => ({
             id: t.id,
             user_id: t.user_id,
             category_id: t.category_id,
@@ -76,18 +95,20 @@ export class ThresholdService {
             created_at: t.created_at,
             updated_at: t.updated_at,
             categoria: {
-                id: t.category.id,
-                nome: t.category.nome,
-                cor: t.category.cor,
-                tipo: t.category.tipo as 'despesa' | 'receita',
+                id: t.cat_id,
+                nome: t.cat_nome,
+                cor: t.cat_cor,
+                tipo: t.cat_tipo as 'despesa' | 'receita',
             }
         }))
     }
 
     static async getThresholdById(thresholdId: number, userId: number): Promise<Threshold | null> {
-        const threshold = await prisma.threshold.findFirst({
-            where: { id: thresholdId, user_id: userId }
-        })
+        const [threshold] = await db
+            .select()
+            .from(thresholds)
+            .where(and(eq(thresholds.id, thresholdId), eq(thresholds.user_id, userId)))
+            .limit(1)
 
         if (!threshold) return null
 
@@ -111,9 +132,11 @@ export class ThresholdService {
         }
 
         if (category_id) {
-            const category = await prisma.category.findFirst({
-                where: { id: category_id, user_id: userId }
-            })
+            const [category] = await db
+                .select()
+                .from(categories)
+                .where(and(eq(categories.id, category_id), eq(categories.user_id, userId)))
+                .limit(1)
 
             if (!category) {
                 throw createErrorResponse("Categoria não encontrada.", 404)
@@ -123,36 +146,43 @@ export class ThresholdService {
                 throw createErrorResponse("Limites só podem ser definidos para categorias de despesa.", 400)
             }
 
-            const existing = await prisma.threshold.findFirst({
-                where: { category_id, user_id: userId, id: { not: thresholdId } }
-            })
+            const [existing] = await db
+                .select()
+                .from(thresholds)
+                .where(
+                    and(
+                        eq(thresholds.category_id, category_id),
+                        eq(thresholds.user_id, userId),
+                        sql`${thresholds.id} <> ${thresholdId}`
+                    )
+                )
+                .limit(1)
 
             if (existing) {
                 throw createErrorResponse("Já existe um limite definido para esta categoria.", 409)
             }
         }
 
-        const result = await prisma.threshold.update({
-            where: { id: thresholdId },
-            data: {
+        const [result] = await db
+            .update(thresholds)
+            .set({
                 ...(category_id !== undefined ? { category_id } : {}),
-                ...(valor !== undefined ? { valor } : {}),
-            }
-        })
+                ...(valor !== undefined ? { valor: String(valor) } : {}),
+            })
+            .where(eq(thresholds.id, thresholdId))
+            .returning()
 
         return { ...result, valor: Number(result.valor) } as unknown as Threshold
     }
 
     static async deleteThreshold(thresholdId: number, userId: number): Promise<{ message: string }> {
-        const exists = await prisma.threshold.findFirst({
-            where: { id: thresholdId, user_id: userId }
-        })
+        const exists = await this.getThresholdById(thresholdId, userId)
 
         if (!exists) {
             throw createErrorResponse("Threshold não encontrado.", 404)
         }
 
-        await prisma.threshold.delete({ where: { id: thresholdId } })
+        await db.delete(thresholds).where(eq(thresholds.id, thresholdId))
 
         return { message: "Limite removido com sucesso." }
     }
@@ -162,13 +192,7 @@ export class ThresholdService {
         const targetMonth = month || (now.getMonth() + 1)
         const targetYear = year || now.getFullYear()
 
-        const result = await prisma.$queryRaw<Array<{
-            threshold_id: number
-            limit_value: string
-            category_name: string
-            category_color: string
-            current_spending: string
-        }>>`
+        const queryResult = await db.execute(sql`
             SELECT
                 t.id as threshold_id,
                 t.valor as limit_value,
@@ -184,9 +208,17 @@ export class ThresholdService {
             WHERE t.user_id = ${userId}
             GROUP BY t.id, t.valor, c.nome, c.cor
             ORDER BY c.nome
-        `
+        `)
 
-        return result.map((row: { threshold_id: number; limit_value: string; category_name: string; category_color: string; current_spending: string }) => {
+        const result = queryResult.rows as unknown as Array<{
+            threshold_id: number
+            limit_value: string
+            category_name: string
+            category_color: string
+            current_spending: string
+        }>
+
+        return result.map((row) => {
             const limitValue = Number(row.limit_value)
             const currentSpending = Number(row.current_spending)
             const percentageUsed = limitValue > 0 ? (currentSpending / limitValue) * 100 : 0
@@ -229,23 +261,27 @@ export class ThresholdService {
         const targetMonth = month || (now.getMonth() + 1)
         const targetYear = year || now.getFullYear()
 
-        const threshold = await prisma.threshold.findFirst({
-            where: { category_id: categoryId, user_id: userId }
-        })
+        const [threshold] = await db
+            .select()
+            .from(thresholds)
+            .where(and(eq(thresholds.category_id, categoryId), eq(thresholds.user_id, userId)))
+            .limit(1)
 
         if (!threshold) return { would_violate: false }
 
         const thresholdValue = Number(threshold.valor)
 
-        const spendingResult = await prisma.$queryRaw<Array<{ current_spending: string }>>`
+        const spendingResult = await db.execute(sql`
             SELECT COALESCE(SUM(quantidade), 0) as current_spending
             FROM expenses
             WHERE user_id = ${userId} AND category_id = ${categoryId}
               AND EXTRACT(MONTH FROM data) = ${targetMonth}
               AND EXTRACT(YEAR FROM data) = ${targetYear}
-        `
+        `)
 
-        const currentSpending = Number(spendingResult[0]?.current_spending || 0)
+        const currentSpending = Number(
+            (spendingResult.rows[0] as { current_spending?: string } | undefined)?.current_spending || 0
+        )
         const newTotal = currentSpending + amount
         const remaining = Math.max(0, thresholdValue - currentSpending)
 
@@ -270,17 +306,12 @@ export class ThresholdService {
         const currentMonth = now.getMonth() + 1
         const currentYear = now.getFullYear()
 
-        const statsResult = await prisma.threshold.aggregate({
-            where: { user_id: userId },
-            _count: { id: true },
-            _sum: { valor: true }
-        })
+        const [statsResult] = await db
+            .select({ count: count(), sum: sum(thresholds.valor) })
+            .from(thresholds)
+            .where(eq(thresholds.user_id, userId))
 
-        const alertsResult = await prisma.$queryRaw<Array<{
-            exceeded_count: bigint
-            near_limit_count: bigint
-            total_spent: string
-        }>>`
+        const alertsQuery = await db.execute(sql`
             SELECT
                 COUNT(CASE WHEN current_spending > limit_value THEN 1 END) as exceeded_count,
                 COUNT(CASE WHEN current_spending >= limit_value * 0.75 AND current_spending <= limit_value THEN 1 END) as near_limit_count,
@@ -297,16 +328,22 @@ export class ThresholdService {
                 WHERE t.user_id = ${userId}
                 GROUP BY t.id, t.valor
             ) threshold_analysis
-        `
+        `)
 
-        const alerts = alertsResult[0]
+        const alerts = alertsQuery.rows[0] as {
+            exceeded_count?: string | number
+            near_limit_count?: string | number
+            total_spent?: string
+        } | undefined
+
+        const totalThresholds = Number(statsResult?.count ?? 0)
 
         return {
-            total_thresholds: statsResult._count.id,
-            categories_with_limits: statsResult._count.id,
+            total_thresholds: totalThresholds,
+            categories_with_limits: totalThresholds,
             exceeded_this_month: Number(alerts?.exceeded_count || 0),
             near_limit_count: Number(alerts?.near_limit_count || 0),
-            total_budget: Number(statsResult._sum.valor || 0),
+            total_budget: Number(statsResult?.sum || 0),
             total_spent_this_month: Number(alerts?.total_spent || 0)
         }
     }

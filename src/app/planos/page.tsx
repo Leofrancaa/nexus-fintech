@@ -15,6 +15,13 @@ interface Plano {
   prazo: string;
   descricao?: string;
   total_contribuido: number;
+  taxa_anual?: number | null;
+  status?: string;
+  progresso?: number;
+  aporte_mensal_necessario?: number;
+  taxa_utilizada?: number;
+  taxa_fonte?: "custom" | "selic" | "fallback";
+  meses_restantes?: number;
 }
 
 export default function Plans() {
@@ -31,14 +38,9 @@ export default function Plans() {
 
   const fetchPlanos = useCallback(async () => {
     try {
-      // Adicione estas linhas para debug:
-      const token = localStorage.getItem("nexus_token");
-      console.log("Token no localStorage:", token ? "EXISTE" : "NÃO EXISTE");
-
       const res = await apiRequest("/api/plans");
       if (!res.ok) throw new Error("Erro ao buscar planos");
       const data = await res.json();
-      console.log("Resposta da API:", data); // Adicione esta linha
       setPlanos(data.data || []);
     } catch (error) {
       if (error instanceof Error && error.message.includes("Sessão expirada")) {

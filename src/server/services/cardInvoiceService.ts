@@ -1,5 +1,6 @@
-import { Prisma } from '@prisma/client'
-import prisma from '@/server/db/prisma'
+import { and, eq, desc, sql, sum } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { cards, expenses, cardInvoicesPayments } from '@/server/db/schema'
 import {
     createErrorResponse
 } from '@/server/utils/helper'
@@ -22,10 +23,15 @@ export class CardInvoiceService {
     static async payCardInvoice(params: PayInvoiceParams): Promise<PayInvoiceResult> {
         const { user_id, card_id, mes, ano } = params
 
-        const card = await prisma.card.findFirst({
-            where: { id: card_id, user_id: user_id },
-            select: { dia_vencimento: true, dias_fechamento_antes: true, limite_disponivel: true }
-        })
+        const [card] = await db
+            .select({
+                dia_vencimento: cards.dia_vencimento,
+                dias_fechamento_antes: cards.dias_fechamento_antes,
+                limite_disponivel: cards.limite_disponivel,
+            })
+            .from(cards)
+            .where(and(eq(cards.id, card_id), eq(cards.user_id, user_id)))
+            .limit(1)
 
         if (!card) {
             throw createErrorResponse("Cartão não encontrado.", 404)
@@ -59,33 +65,53 @@ export class CardInvoiceService {
             )
         }
 
-        const totalResult = await prisma.expense.aggregate({
-            where: { user_id, card_id, competencia_mes, competencia_ano },
-            _sum: { quantidade: true }
-        })
+        const [totalResult] = await db
+            .select({ total: sum(expenses.quantidade) })
+            .from(expenses)
+            .where(
+                and(
+                    eq(expenses.user_id, user_id),
+                    eq(expenses.card_id, card_id),
+                    eq(expenses.competencia_mes, competencia_mes),
+                    eq(expenses.competencia_ano, competencia_ano)
+                )
+            )
 
-        const total = Number(totalResult._sum.quantidade || 0)
+        const total = Number(totalResult?.total || 0)
 
         if (total === 0) {
             throw createErrorResponse("Não há despesas nesta competência para pagar.", 400)
         }
 
-        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-            const alreadyPaid = await tx.cardInvoicePayment.findFirst({
-                where: { user_id, card_id, competencia_mes: competencia_mes!, competencia_ano: competencia_ano! }
-            })
+        await db.transaction(async (tx) => {
+            const [alreadyPaid] = await tx
+                .select()
+                .from(cardInvoicesPayments)
+                .where(
+                    and(
+                        eq(cardInvoicesPayments.user_id, user_id),
+                        eq(cardInvoicesPayments.card_id, card_id),
+                        eq(cardInvoicesPayments.competencia_mes, competencia_mes!),
+                        eq(cardInvoicesPayments.competencia_ano, competencia_ano!)
+                    )
+                )
+                .limit(1)
 
             if (alreadyPaid) {
                 throw createErrorResponse("Esta fatura já foi paga.", 400)
             }
 
-            await tx.card.update({
-                where: { id: card_id },
-                data: { limite_disponivel: { increment: total } }
-            })
+            await tx
+                .update(cards)
+                .set({ limite_disponivel: sql`${cards.limite_disponivel} + ${total}` })
+                .where(eq(cards.id, card_id))
 
-            await tx.cardInvoicePayment.create({
-                data: { user_id, card_id, competencia_mes: competencia_mes!, competencia_ano: competencia_ano!, amount_paid: total }
+            await tx.insert(cardInvoicesPayments).values({
+                user_id,
+                card_id,
+                competencia_mes: competencia_mes!,
+                competencia_ano: competencia_ano!,
+                amount_paid: String(total),
             })
         })
 
@@ -105,10 +131,14 @@ export class CardInvoiceService {
         data_fechamento: string
         pode_pagar: boolean
     }>> {
-        const card = await prisma.card.findFirst({
-            where: { id: card_id, user_id: user_id },
-            select: { dia_vencimento: true, dias_fechamento_antes: true }
-        })
+        const [card] = await db
+            .select({
+                dia_vencimento: cards.dia_vencimento,
+                dias_fechamento_antes: cards.dias_fechamento_antes,
+            })
+            .from(cards)
+            .where(and(eq(cards.id, card_id), eq(cards.user_id, user_id)))
+            .limit(1)
 
         if (!card) {
             throw createErrorResponse("Cartão não encontrado.", 404)
@@ -117,11 +147,7 @@ export class CardInvoiceService {
         const dueDay = Number(card.dia_vencimento)
         const closeBefore = Number(card.dias_fechamento_antes ?? 10)
 
-        const expensesResult = await prisma.$queryRaw<Array<{
-            competencia_mes: number
-            competencia_ano: number
-            total_fatura: string
-        }>>`
+        const expensesResult = await db.execute(sql`
             SELECT
                 e.competencia_mes,
                 e.competencia_ano,
@@ -137,11 +163,17 @@ export class CardInvoiceService {
               AND e.competencia_ano IS NOT NULL
             GROUP BY e.competencia_mes, e.competencia_ano
             ORDER BY e.competencia_ano, e.competencia_mes
-        `
+        `)
+
+        const rows = expensesResult.rows as unknown as Array<{
+            competencia_mes: number
+            competencia_ano: number
+            total_fatura: string
+        }>
 
         const now = new Date()
 
-        return expensesResult.map((row: { competencia_mes: number; competencia_ano: number; total_fatura: string }) => {
+        return rows.map((row) => {
             const mes = Number(row.competencia_mes)
             const ano = Number(row.competencia_ano)
             const dueDate = new Date(ano, mes - 1, Math.min(dueDay, 28))
@@ -169,13 +201,19 @@ export class CardInvoiceService {
         amount_paid: number
         paid_at: Date
     }>> {
-        const payments = await prisma.cardInvoicePayment.findMany({
-            where: { user_id, card_id },
-            orderBy: [{ competencia_ano: 'desc' }, { competencia_mes: 'desc' }],
-            take: limit,
-        })
+        const payments = await db
+            .select()
+            .from(cardInvoicesPayments)
+            .where(
+                and(
+                    eq(cardInvoicesPayments.user_id, user_id),
+                    eq(cardInvoicesPayments.card_id, card_id)
+                )
+            )
+            .orderBy(desc(cardInvoicesPayments.competencia_ano), desc(cardInvoicesPayments.competencia_mes))
+            .limit(limit)
 
-        return payments.map((p: { competencia_mes: number; competencia_ano: number; amount_paid: unknown; created_at: Date }) => ({
+        return payments.map((p) => ({
             competencia_mes: p.competencia_mes,
             competencia_ano: p.competencia_ano,
             amount_paid: Number(p.amount_paid),
@@ -189,9 +227,18 @@ export class CardInvoiceService {
         competencia_mes: number,
         competencia_ano: number
     ): Promise<{ message: string; amount_reverted: number }> {
-        const payment = await prisma.cardInvoicePayment.findFirst({
-            where: { user_id, card_id, competencia_mes, competencia_ano }
-        })
+        const [payment] = await db
+            .select()
+            .from(cardInvoicesPayments)
+            .where(
+                and(
+                    eq(cardInvoicesPayments.user_id, user_id),
+                    eq(cardInvoicesPayments.card_id, card_id),
+                    eq(cardInvoicesPayments.competencia_mes, competencia_mes),
+                    eq(cardInvoicesPayments.competencia_ano, competencia_ano)
+                )
+            )
+            .limit(1)
 
         if (!payment) {
             throw createErrorResponse("Pagamento não encontrado.", 404)
@@ -199,11 +246,12 @@ export class CardInvoiceService {
 
         const amountPaid = Number(payment.amount_paid)
 
-        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-            const card = await tx.card.findUnique({
-                where: { id: card_id },
-                select: { limite_disponivel: true, limite: true }
-            })
+        await db.transaction(async (tx) => {
+            const [card] = await tx
+                .select({ limite_disponivel: cards.limite_disponivel, limite: cards.limite })
+                .from(cards)
+                .where(eq(cards.id, card_id))
+                .limit(1)
 
             if (!card) throw createErrorResponse("Cartão não encontrado.", 404)
 
@@ -225,14 +273,12 @@ export class CardInvoiceService {
                 )
             }
 
-            await tx.card.update({
-                where: { id: card_id },
-                data: { limite_disponivel: { decrement: amountPaid } }
-            })
+            await tx
+                .update(cards)
+                .set({ limite_disponivel: sql`${cards.limite_disponivel} - ${amountPaid}` })
+                .where(eq(cards.id, card_id))
 
-            await tx.cardInvoicePayment.delete({
-                where: { id: payment.id }
-            })
+            await tx.delete(cardInvoicesPayments).where(eq(cardInvoicesPayments.id, payment.id))
         })
 
         return {
@@ -247,10 +293,14 @@ export class CardInvoiceService {
         competencia_mes: number,
         competencia_ano: number
     ): Promise<{ can_pay: boolean; reason?: string; close_date?: string }> {
-        const card = await prisma.card.findFirst({
-            where: { id: card_id, user_id: user_id },
-            select: { dia_vencimento: true, dias_fechamento_antes: true }
-        })
+        const [card] = await db
+            .select({
+                dia_vencimento: cards.dia_vencimento,
+                dias_fechamento_antes: cards.dias_fechamento_antes,
+            })
+            .from(cards)
+            .where(and(eq(cards.id, card_id), eq(cards.user_id, user_id)))
+            .limit(1)
 
         if (!card) {
             return { can_pay: false, reason: "Cartão não encontrado." }
@@ -259,9 +309,18 @@ export class CardInvoiceService {
         const dueDay = Number(card.dia_vencimento)
         const closeBefore = Number(card.dias_fechamento_antes ?? 10)
 
-        const alreadyPaid = await prisma.cardInvoicePayment.findFirst({
-            where: { user_id, card_id, competencia_mes, competencia_ano }
-        })
+        const [alreadyPaid] = await db
+            .select()
+            .from(cardInvoicesPayments)
+            .where(
+                and(
+                    eq(cardInvoicesPayments.user_id, user_id),
+                    eq(cardInvoicesPayments.card_id, card_id),
+                    eq(cardInvoicesPayments.competencia_mes, competencia_mes),
+                    eq(cardInvoicesPayments.competencia_ano, competencia_ano)
+                )
+            )
+            .limit(1)
 
         if (alreadyPaid) {
             return { can_pay: false, reason: "Esta fatura já foi paga." }

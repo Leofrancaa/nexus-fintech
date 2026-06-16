@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import prisma from '@/server/db/prisma'
+import { eq } from 'drizzle-orm'
+import db from '@/server/db/drizzle'
+import { users } from '@/server/db/schema'
 import { generateResetToken, sendPasswordResetEmail } from '@/server/services/emailService'
 
 export async function POST(request: NextRequest) {
@@ -15,10 +17,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Email inválido.' }, { status: 400 })
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-      select: { id: true, nome: true, email: true }
-    })
+    const [user] = await db
+      .select({ id: users.id, nome: users.nome, email: users.email })
+      .from(users)
+      .where(eq(users.email, email.toLowerCase()))
+      .limit(1)
 
     if (!user) {
       return NextResponse.json({ success: true, message: 'Se o email estiver cadastrado, você receberá um link de recuperação.' })
@@ -27,18 +30,18 @@ export async function POST(request: NextRequest) {
     const resetToken = generateResetToken()
     const resetExpires = new Date(Date.now() + 3600000)
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { reset_password_token: resetToken, reset_password_expires: resetExpires }
-    })
+    await db
+      .update(users)
+      .set({ reset_password_token: resetToken, reset_password_expires: resetExpires })
+      .where(eq(users.id, user.id))
 
     try {
       await sendPasswordResetEmail(user.email, resetToken, user.nome)
     } catch {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { reset_password_token: null, reset_password_expires: null }
-      })
+      await db
+        .update(users)
+        .set({ reset_password_token: null, reset_password_expires: null })
+        .where(eq(users.id, user.id))
       return NextResponse.json({ success: false, error: 'Erro ao enviar email de recuperação.' }, { status: 500 })
     }
 
