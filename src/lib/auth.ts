@@ -6,6 +6,16 @@ export const isAuthenticated = (): boolean => {
   return document.cookie.includes('nexus_authenticated=1')
 }
 
+// Erro de login que carrega o "code" da API (ex.: 'email_not_verified').
+export class LoginError extends Error {
+  code?: string
+  constructor(message: string, code?: string) {
+    super(message)
+    this.name = 'LoginError'
+    this.code = code
+  }
+}
+
 // Login
 export const login = async (data: { email: string; senha: string }) => {
   const response = await fetch(`${API_URL}/auth/login`, {
@@ -15,8 +25,18 @@ export const login = async (data: { email: string; senha: string }) => {
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || 'E-mail ou senha incorretos.')
+    throw new LoginError(error.error || 'E-mail ou senha incorretos.', error.code)
   }
+  return response.json()
+}
+
+// Reenvia o e-mail de confirmação de conta.
+export const resendVerification = async (email: string) => {
+  const response = await fetch(`${API_URL}/auth/resend-verification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
   return response.json()
 }
 

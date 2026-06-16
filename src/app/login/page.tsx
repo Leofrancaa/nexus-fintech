@@ -11,14 +11,32 @@ import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RightShowcase } from "@/components/rightShowCase";
-import { login } from "@/lib/auth";
+import { login, resendVerification, LoginError } from "@/lib/auth";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [showSenha, setShowSenha] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
   const router = useRouter();
+
+  const handleResend = async () => {
+    if (!email) {
+      toast.error("Informe seu e-mail para reenviar a confirmação");
+      return;
+    }
+    setResending(true);
+    try {
+      const res = await resendVerification(email);
+      toast.success(res.message || "E-mail de confirmação reenviado.");
+    } catch {
+      toast.error("Não foi possível reenviar agora. Tente novamente.");
+    } finally {
+      setResending(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +47,7 @@ export default function Login() {
     }
 
     setLoading(true);
+    setNeedsVerification(false);
 
     try {
       const response = await login({ email, senha });
@@ -43,6 +62,9 @@ export default function Login() {
         toast.error(response.message || "Não foi possível fazer login. Verifique suas credenciais");
       }
     } catch (error: unknown) {
+      if (error instanceof LoginError && error.code === "email_not_verified") {
+        setNeedsVerification(true);
+      }
       toast.error(
         error instanceof Error ? error.message : "Não foi possível completar a ação. Tente novamente"
       );
@@ -169,6 +191,20 @@ export default function Login() {
               <Button type="submit" className="h-12 max-w-full" disabled={loading}>
                 Entrar
               </Button>
+
+              {needsVerification && (
+                <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-200">
+                  <p>Seu e-mail ainda não foi confirmado.</p>
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={resending}
+                    className="mt-2 text-[#3B82F6] hover:underline font-medium disabled:opacity-50"
+                  >
+                    {resending ? "Reenviando..." : "Reenviar e-mail de confirmação"}
+                  </button>
+                </div>
+              )}
 
               <p className="text-md text-center text-[#9CA3AF] mt-4">
                 Não tem uma conta?{" "}

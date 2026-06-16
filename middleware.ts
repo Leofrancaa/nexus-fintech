@@ -4,7 +4,8 @@ import { jwtVerify } from 'jose'
 const PROTECTED_ROUTES = [
   '/categorias', '/cartoes', '/limites', '/receitas',
   '/despesas', '/investimentos', '/dashboard', '/planos',
-  '/configuracoes', '/manual'
+  '/configuracoes', '/manual',
+  '/carreira', '/estudos', '/pessoal', '/importar', '/assistente'
 ]
 const PUBLIC_ROUTES = ['/login', '/register', '/forgot-password', '/reset-password']
 const COOKIE_NAME = 'nexus_token'

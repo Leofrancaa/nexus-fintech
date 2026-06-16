@@ -32,6 +32,10 @@ export const users = pgTable('users', {
   accepted_terms_at: timestamp('accepted_terms_at', { mode: 'date' }),
   reset_password_token: text('reset_password_token'),
   reset_password_expires: timestamp('reset_password_expires', { mode: 'date' }),
+  // Confirmação de e-mail no cadastro.
+  email_verified: boolean('email_verified').default(false).notNull(),
+  verification_token: text('verification_token'),
+  verification_expires: timestamp('verification_expires', { mode: 'date' }),
   ...timestamps,
 })
 
