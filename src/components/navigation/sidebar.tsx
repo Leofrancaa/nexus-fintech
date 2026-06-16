@@ -20,6 +20,7 @@ import {
   Briefcase,
   GraduationCap,
   Heart,
+  Upload,
   Settings,
 } from "lucide-react";
 import clsx from "clsx";
@@ -32,6 +33,7 @@ const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Despesas", href: "/despesas", icon: TrendingDown },
   { name: "Receitas", href: "/receitas", icon: TrendingUp },
+  { name: "Importar", href: "/importar", icon: Upload },
   { name: "Cartões", href: "/cartoes", icon: CreditCard },
   { name: "Categorias", href: "/categorias", icon: FolderKanban },
   { name: "Limites e Metas", href: "/limites", icon: Gauge },

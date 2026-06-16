@@ -47,7 +47,8 @@
     "react-hot-toast": "^2.5.2",
     "react-icons": "^5.5.0",
     "recharts": "^3.1.2",
-    "sonner": "^2.0.6"
+    "sonner": "^2.0.6",
+    "unpdf": "^1.6.2"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.1",

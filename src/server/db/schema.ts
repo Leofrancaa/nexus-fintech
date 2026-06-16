@@ -226,6 +226,42 @@ export const personalGoals = pgTable('personal_goals', {
   ...timestamps,
 })
 
+// ===== Bank statement import (extrato) =====
+
+// One upload/parse run of a bank statement.
+export const importBatches = pgTable('import_batches', {
+  id: serial('id').primaryKey(),
+  user_id: integer('user_id').notNull(),
+  // Original file name / bank label.
+  source: text('source').notNull(),
+  // 'ofx' | 'pdf'
+  format: text('format').notNull(),
+  // 'pending' | 'confirmed' | 'discarded'
+  status: text('status').default('pending').notNull(),
+  created_at: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+})
+
+// A single parsed transaction awaiting review/confirmation.
+export const importedTransactions = pgTable('imported_transactions', {
+  id: serial('id').primaryKey(),
+  batch_id: integer('batch_id').notNull(),
+  user_id: integer('user_id').notNull(),
+  date: date('date', { mode: 'date' }).notNull(),
+  // Absolute value; sign is captured by `type`.
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  description: text('description').notNull(),
+  // 'expense' | 'income'
+  type: text('type').notNull(),
+  // Category suggested automatically (rules/LLM); user can override.
+  suggested_category_id: integer('suggested_category_id'),
+  category_id: integer('category_id'),
+  // 'pending' | 'confirmed' | 'skipped' | 'duplicate'
+  status: text('status').default('pending').notNull(),
+  // sha256(user_id|date|amount|type|normalized description) — prevents re-import.
+  dedupe_hash: text('dedupe_hash').notNull(),
+  created_at: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+})
+
 export const inviteCodes = pgTable('invite_codes', {
   id: serial('id').primaryKey(),
   code: varchar('code').notNull().unique(),

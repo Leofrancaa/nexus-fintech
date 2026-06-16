@@ -37,6 +37,8 @@ const TABLES = [
   'career_milestones',
   'study_items',
   'personal_goals',
+  'imported_transactions',
+  'import_batches',
   'users',
 ]
 

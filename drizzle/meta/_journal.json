@@ -15,6 +15,13 @@
       "when": 1781620412466,
       "tag": "0001_career_study_personal",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781622764303,
+      "tag": "0002_statement_import",
+      "breakpoints": true
     }
   ]
 }
