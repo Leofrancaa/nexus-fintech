@@ -3,8 +3,9 @@ import { ParsedTransaction, parseAmount } from './types'
 import { chatJson, isLlmConfigured } from '@/server/services/llmService'
 import { createErrorResponse } from '@/server/utils/helper'
 
-// Limite de texto enviado à LLM (extratos pessoais cabem com folga).
-const MAX_CHARS = 24000
+// Limite de texto enviado à LLM. O free tier do Groq tem ~6000 tokens/min, então
+// mantemos o texto enxuto (~3-4k tokens) + saída curta para não estourar (HTTP 413).
+const MAX_CHARS = 10000
 
 interface LlmTransaction {
   date: string
@@ -50,7 +51,7 @@ export async function parsePdf(buffer: ArrayBuffer | Uint8Array): Promise<Parsed
   const result = await chatJson<{ transactions?: LlmTransaction[] }>({
     system,
     user,
-    maxTokens: 4096,
+    maxTokens: 2048,
   })
 
   const list = Array.isArray(result?.transactions) ? result.transactions : []

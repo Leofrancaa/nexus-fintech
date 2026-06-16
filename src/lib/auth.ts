@@ -50,15 +50,29 @@ export const getUserData = async () => {
 // Helper genérico para requisições autenticadas (cookies enviados automaticamente)
 // endpoint deve ser o path completo, ex: "/api/expenses"
 export const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
-  const response = await fetch(endpoint, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  })
+  // Não forçar Content-Type em uploads (FormData) — o browser define o boundary.
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData
+
+  const headers: HeadersInit = isFormData
+    ? { ...options.headers }
+    : { 'Content-Type': 'application/json', ...options.headers }
+
+  const response = await fetch(endpoint, { ...options, headers })
+
   if (response.status === 401) {
-    throw new Error('Sessão expirada. Faça login novamente.')
+    // Sessão expirada/inválida: limpa o flag de autenticação e manda pro login
+    // SEM propagar erro, para não disparar toasts ("erro ao carregar...") nas telas.
+    if (typeof window !== 'undefined') {
+      document.cookie = 'nexus_authenticated=; Max-Age=0; path=/'
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+      }
+    }
+    // Promessa que nunca resolve: a navegação descarta a tela atual, então o
+    // código chamador não chega a exibir toast de erro.
+    return new Promise<Response>(() => {})
   }
+
   return response
 }

@@ -40,12 +40,17 @@ function extractJson(content: string): string {
   return text
 }
 
-/**
- * Faz uma chamada de chat e devolve o JSON parseado da resposta.
- * Lança erro se a IA não estiver configurada ou a chamada falhar — o chamador
- * deve tratar e cair no fallback (regras).
- */
-export async function chatJson<T = unknown>({ system, user, maxTokens = 2048 }: ChatOptions): Promise<T> {
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+// Chamada base de chat — devolve o texto bruto da resposta.
+async function callChat(
+  messages: ChatMessage[],
+  maxTokens: number,
+  temperature = 0.3
+): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) throw new Error('GROQ_API_KEY não configurada.')
 
@@ -55,6 +60,11 @@ export async function chatJson<T = unknown>({ system, user, maxTokens = 2048 }: 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30000)
 
+  // Modelos Qwen3 (raciocínio) gastam muitos tokens "pensando" e estouram o
+  // limite do free tier. Desliga o raciocínio quando suportado.
+  const body: Record<string, unknown> = { model, temperature, max_tokens: maxTokens, messages }
+  if (/qwen/i.test(model)) body.reasoning_effort = 'none'
+
   try {
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
@@ -63,15 +73,7 @@ export async function chatJson<T = unknown>({ system, user, maxTokens = 2048 }: 
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        temperature: 0,
-        max_tokens: maxTokens,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      }),
+      body: JSON.stringify(body),
     })
 
     if (!res.ok) {
@@ -82,9 +84,38 @@ export async function chatJson<T = unknown>({ system, user, maxTokens = 2048 }: 
     const data = await res.json()
     const content: string = data?.choices?.[0]?.message?.content ?? ''
     if (!content) throw new Error('Resposta vazia da LLM.')
-
-    return JSON.parse(extractJson(content)) as T
+    return content
   } finally {
     clearTimeout(timeout)
   }
+}
+
+/**
+ * Faz uma chamada de chat e devolve o JSON parseado da resposta.
+ * Lança erro se a IA não estiver configurada ou a chamada falhar — o chamador
+ * deve tratar e cair no fallback (regras).
+ */
+export async function chatJson<T = unknown>({ system, user, maxTokens = 2048 }: ChatOptions): Promise<T> {
+  const content = await callChat(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    maxTokens,
+    0 // determinístico para extração de JSON
+  )
+  return JSON.parse(extractJson(content)) as T
+}
+
+/**
+ * Chat em texto livre (assistente). Recebe a mensagem de sistema e o histórico.
+ * Remove blocos de raciocínio <think>...</think> que alguns modelos Qwen emitem.
+ */
+export async function chatText(
+  system: string,
+  history: ChatMessage[],
+  maxTokens = 700
+): Promise<string> {
+  const content = await callChat([{ role: 'system', content: system }, ...history], maxTokens)
+  return content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
 }

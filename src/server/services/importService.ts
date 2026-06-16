@@ -1,4 +1,4 @@
-import { and, eq, desc, inArray } from 'drizzle-orm'
+import { and, eq, desc, inArray, gte, sql, count } from 'drizzle-orm'
 import db from '@/server/db/drizzle'
 import {
   importBatches,
@@ -21,6 +21,9 @@ import type { ParsedTransaction } from '@/server/utils/import/types'
 type ImportFormat = 'ofx' | 'pdf'
 type TxType = 'expense' | 'income'
 
+// Importação por PDF é limitada a 1x por semana por usuário (usa IA).
+const PDF_WEEKLY_LIMIT = 1
+
 interface CreateImportInput {
   userId: number
   source: string
@@ -30,8 +33,34 @@ interface CreateImportInput {
 }
 
 export class ImportService {
+  // Quantos PDFs o usuário importou nos últimos 7 dias.
+  static async pdfImportsThisWeek(userId: number): Promise<number> {
+    const [row] = await db
+      .select({ c: count() })
+      .from(importBatches)
+      .where(
+        and(
+          eq(importBatches.user_id, userId),
+          eq(importBatches.format, 'pdf'),
+          gte(importBatches.created_at, sql`now() - interval '7 days'`)
+        )
+      )
+    return Number(row?.c ?? 0)
+  }
+
   static async createImport(input: CreateImportInput) {
     const { userId, source, format } = input
+
+    // Limite semanal de PDF (1x/semana) — barra antes de gastar a chamada de IA.
+    if (format === 'pdf') {
+      const used = await this.pdfImportsThisWeek(userId)
+      if (used >= PDF_WEEKLY_LIMIT) {
+        throw createErrorResponse(
+          'Você já usou sua importação de PDF desta semana. Tente novamente em alguns dias ou use um arquivo OFX.',
+          429
+        )
+      }
+    }
 
     // 1) Parse (determinístico p/ OFX, texto+IA p/ PDF)
     let parsed: ParsedTransaction[]

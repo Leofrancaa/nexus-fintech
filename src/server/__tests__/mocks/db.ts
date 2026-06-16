@@ -39,6 +39,7 @@ const TABLES = [
   'personal_goals',
   'imported_transactions',
   'import_batches',
+  'chat_messages',
   'users',
 ]
 

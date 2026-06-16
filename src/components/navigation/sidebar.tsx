@@ -21,6 +21,7 @@ import {
   GraduationCap,
   Heart,
   Upload,
+  Sparkles,
   Settings,
 } from "lucide-react";
 import clsx from "clsx";
@@ -41,6 +42,7 @@ const navItems = [
   { name: "Carreira", href: "/carreira", icon: Briefcase },
   { name: "Estudos", href: "/estudos", icon: GraduationCap },
   { name: "Pessoal", href: "/pessoal", icon: Heart },
+  { name: "Assistente", href: "/assistente", icon: Sparkles },
   { name: "Manual", href: "/manual", icon: BookOpen },
 ];
 

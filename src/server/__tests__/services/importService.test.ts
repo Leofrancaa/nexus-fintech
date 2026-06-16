@@ -117,6 +117,44 @@ describe('ImportService dedupe', () => {
   })
 })
 
+describe('ImportService — limite semanal de PDF', () => {
+  it('bloqueia (429) um segundo PDF na mesma semana', async () => {
+    // Simula um PDF já importado hoje.
+    await db.insert(schema.importBatches).values({
+      user_id: USER_ID,
+      source: 'extrato.pdf',
+      format: 'pdf',
+      status: 'pending',
+    })
+
+    await expect(
+      ImportService.createImport({
+        userId: USER_ID,
+        source: 'outro.pdf',
+        format: 'pdf',
+        pdfBuffer: new ArrayBuffer(0),
+      })
+    ).rejects.toMatchObject({ status: 429 })
+  })
+
+  it('não bloqueia importação OFX (sem limite)', async () => {
+    await db.insert(schema.importBatches).values({
+      user_id: USER_ID,
+      source: 'extrato.pdf',
+      format: 'pdf',
+      status: 'pending',
+    })
+
+    const result = await ImportService.createImport({
+      userId: USER_ID,
+      source: 'extrato.ofx',
+      format: 'ofx',
+      ofxText: OFX,
+    })
+    expect(result.summary.total).toBe(3)
+  })
+})
+
 describe('ImportService.updateTransaction', () => {
   it('atualiza tipo, categoria e status de inclusão', async () => {
     const { transactions } = await ImportService.createImport({

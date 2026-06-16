@@ -262,6 +262,17 @@ export const importedTransactions = pgTable('imported_transactions', {
   created_at: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 })
 
+// ===== AI assistant chat (Qwen) =====
+// Histórico de mensagens; também usado para contar o limite diário por usuário.
+export const chatMessages = pgTable('chat_messages', {
+  id: serial('id').primaryKey(),
+  user_id: integer('user_id').notNull(),
+  // 'user' | 'assistant'
+  role: text('role').notNull(),
+  content: text('content').notNull(),
+  created_at: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+})
+
 export const inviteCodes = pgTable('invite_codes', {
   id: serial('id').primaryKey(),
   code: varchar('code').notNull().unique(),
