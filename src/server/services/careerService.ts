@@ -10,7 +10,6 @@ import {
   CareerHorizon,
 } from '@/server/types/index'
 import { createErrorResponse, sanitizeString } from '@/server/utils/helper'
-import { DEFAULT_CAREER_PROFILE, DEFAULT_CAREER_MILESTONES } from '@/server/data/careerSeed'
 
 const VALID_STATUS: MilestoneStatus[] = ['planned', 'in_progress', 'done']
 const VALID_HORIZON: CareerHorizon[] = ['0-6m', '6-18m', '18-36m']
@@ -22,8 +21,9 @@ function assertStatus(status: string): void {
 }
 
 export class CareerService {
-  // Cria o plano padrão na primeira vez que o usuário acessa o módulo.
-  static async ensureSeeded(userId: number): Promise<void> {
+  // Garante um perfil de carreira VAZIO no primeiro acesso (sem plano padrão).
+  // Cada usuário define o próprio norte, princípios e marcos.
+  static async ensureProfile(userId: number): Promise<void> {
     const [existing] = await db
       .select({ user_id: careerProfile.user_id })
       .from(careerProfile)
@@ -32,26 +32,7 @@ export class CareerService {
 
     if (existing) return
 
-    await db.transaction(async (tx) => {
-      await tx.insert(careerProfile).values({
-        user_id: userId,
-        north_star: DEFAULT_CAREER_PROFILE.north_star,
-        track: DEFAULT_CAREER_PROFILE.track,
-        rationale: DEFAULT_CAREER_PROFILE.rationale,
-        principles: DEFAULT_CAREER_PROFILE.principles,
-      })
-
-      await tx.insert(careerMilestones).values(
-        DEFAULT_CAREER_MILESTONES.map((m, index) => ({
-          user_id: userId,
-          title: m.title,
-          description: m.description,
-          horizon: m.horizon,
-          status: 'planned' as MilestoneStatus,
-          position: index,
-        }))
-      )
-    })
+    await db.insert(careerProfile).values({ user_id: userId })
   }
 
   static async getProfile(userId: number): Promise<CareerProfile | null> {

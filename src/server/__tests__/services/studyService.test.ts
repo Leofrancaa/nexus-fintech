@@ -6,15 +6,10 @@ import { StudyService } from '@/server/services/studyService'
 
 const USER_ID = 1
 
-describe('StudyService.ensureSeeded', () => {
-  it('semeia a trilha padrão no primeiro acesso e é idempotente', async () => {
-    await StudyService.ensureSeeded(USER_ID)
-    const first = await StudyService.getItems(USER_ID)
-    expect(first.length).toBeGreaterThan(0)
-
-    await StudyService.ensureSeeded(USER_ID)
-    const second = await StudyService.getItems(USER_ID)
-    expect(second.length).toBe(first.length)
+describe('StudyService — sem seed padrão', () => {
+  it('começa vazio (cada usuário cria a própria trilha)', async () => {
+    const items = await StudyService.getItems(USER_ID)
+    expect(items).toHaveLength(0)
   })
 })
 

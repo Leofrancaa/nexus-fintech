@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = getAuthUser(request)
     if (!user) return unauthorizedResponse()
-    await CareerService.ensureSeeded(user.id)
+    await CareerService.ensureProfile(user.id)
     const milestones = await CareerService.getMilestones(user.id)
     return ok(milestones, 'Marcos de carreira recuperados.')
   } catch (error) {

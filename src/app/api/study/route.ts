@@ -7,7 +7,6 @@ export async function GET(request: NextRequest) {
   try {
     const user = getAuthUser(request)
     if (!user) return unauthorizedResponse()
-    await StudyService.ensureSeeded(user.id)
     const items = await StudyService.getItems(user.id)
     return ok(items, 'Itens de estudo recuperados.')
   } catch (error) {

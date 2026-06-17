@@ -6,29 +6,28 @@ import { CareerService } from '@/server/services/careerService'
 
 const USER_ID = 1
 
-describe('CareerService.ensureSeeded', () => {
-  it('cria o perfil e os marcos padrão no primeiro acesso', async () => {
-    await CareerService.ensureSeeded(USER_ID)
+describe('CareerService.ensureProfile', () => {
+  it('cria um perfil VAZIO no primeiro acesso (sem plano padrão)', async () => {
+    await CareerService.ensureProfile(USER_ID)
 
     const profile = await CareerService.getProfile(USER_ID)
     expect(profile).not.toBeNull()
-    expect(profile?.north_star).toBeTruthy()
-    expect(profile?.principles.length).toBeGreaterThan(0)
+    expect(profile?.north_star).toBeNull()
+    expect(profile?.principles).toEqual([])
 
+    // Nenhum marco padrão — o usuário cria os seus.
     const milestones = await CareerService.getMilestones(USER_ID)
-    expect(milestones.length).toBeGreaterThan(0)
-    // cobre os três horizontes
-    expect(milestones.some((m) => m.horizon === '0-6m')).toBe(true)
-    expect(milestones.some((m) => m.horizon === '6-18m')).toBe(true)
-    expect(milestones.some((m) => m.horizon === '18-36m')).toBe(true)
+    expect(milestones).toHaveLength(0)
   })
 
-  it('é idempotente (não duplica ao chamar de novo)', async () => {
-    await CareerService.ensureSeeded(USER_ID)
-    const first = await CareerService.getMilestones(USER_ID)
-    await CareerService.ensureSeeded(USER_ID)
-    const second = await CareerService.getMilestones(USER_ID)
-    expect(second.length).toBe(first.length)
+  it('é idempotente (não duplica o perfil ao chamar de novo)', async () => {
+    await CareerService.ensureProfile(USER_ID)
+    await CareerService.ensureProfile(USER_ID)
+    const rows = await db
+      .select()
+      .from(schema.careerProfile)
+      .where(eq(schema.careerProfile.user_id, USER_ID))
+    expect(rows).toHaveLength(1)
   })
 })
 

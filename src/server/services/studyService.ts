@@ -8,7 +8,6 @@ import {
   StudyCategory,
 } from '@/server/types/index'
 import { createErrorResponse, sanitizeString } from '@/server/utils/helper'
-import { DEFAULT_STUDY_ITEMS } from '@/server/data/careerSeed'
 
 const VALID_STATUS: MilestoneStatus[] = ['planned', 'in_progress', 'done']
 const VALID_CATEGORY: StudyCategory[] = ['course', 'book', 'certification']
@@ -26,29 +25,7 @@ function statusFromProgress(progress: number): MilestoneStatus {
 }
 
 export class StudyService {
-  static async ensureSeeded(userId: number): Promise<void> {
-    const [existing] = await db
-      .select({ id: studyItems.id })
-      .from(studyItems)
-      .where(eq(studyItems.user_id, userId))
-      .limit(1)
-
-    if (existing) return
-
-    await db.insert(studyItems).values(
-      DEFAULT_STUDY_ITEMS.map((item, index) => ({
-        user_id: userId,
-        title: item.title,
-        description: item.description,
-        category: item.category,
-        resource_url: item.resource_url,
-        progress: 0,
-        status: 'planned' as MilestoneStatus,
-        position: index,
-      }))
-    )
-  }
-
+  // Sem seed: cada usuário cria a própria trilha de estudos.
   static async getItems(userId: number): Promise<StudyItem[]> {
     const rows = await db
       .select()
