@@ -2,6 +2,13 @@ import jwt from 'jsonwebtoken'
 import { NextRequest, NextResponse } from 'next/server'
 
 const COOKIE_NAME = 'nexus_token'
+
+// E-mail do admin (mesmo usado no frontend). Configurável via env.
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'nexusfintool1962@gmail.com'
+
+export function isAdmin(user: { email: string } | null): boolean {
+  return !!user && user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+}
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',

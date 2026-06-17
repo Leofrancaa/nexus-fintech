@@ -20,7 +20,6 @@ export async function POST(request: NextRequest) {
         email: users.email,
         senha: users.senha,
         currency: users.currency,
-        email_verified: users.email_verified,
         created_at: users.created_at,
         updated_at: users.updated_at,
       })
@@ -37,18 +36,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'E-mail ou senha incorretos.' }, { status: 401 })
     }
 
-    // Bloqueia login até o e-mail ser confirmado (code 'email_not_verified'
-    // permite a tela de login oferecer o reenvio).
-    if (!user.email_verified) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.',
-          code: 'email_not_verified',
-        },
-        { status: 403 }
-      )
-    }
+    // Verificação de e-mail é opcional: o cadastro já é protegido por código de
+    // convite, então não bloqueamos o login por e-mail não confirmado.
 
     const userWithoutPassword = { id: user.id, nome: user.nome, email: user.email, currency: user.currency, created_at: user.created_at, updated_at: user.updated_at }
     const token = createToken({ id: user.id, nome: user.nome, email: user.email })

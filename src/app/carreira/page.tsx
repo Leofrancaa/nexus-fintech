@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, ExternalLink } from "lucide-react";
+import { Plus, Trash2, ExternalLink, Pencil } from "lucide-react";
 import PageTitle from "@/components/pageTitle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,6 +48,13 @@ export default function CareerPage() {
   const [newTitle, setNewTitle] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [confirmId, setConfirmId] = useState<number | null>(null);
+
+  // Edição do perfil (norte, trilha, justificativa, princípios)
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [pNorth, setPNorth] = useState("");
+  const [pTrack, setPTrack] = useState<"" | "technical" | "product">("");
+  const [pRationale, setPRationale] = useState("");
+  const [pPrinciples, setPPrinciples] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated()) router.push("/login");
@@ -127,6 +134,39 @@ export default function CareerPage() {
     fetchAll();
   };
 
+  const startEditProfile = () => {
+    setPNorth(profile?.north_star ?? "");
+    setPTrack(profile?.track ?? "");
+    setPRationale(profile?.rationale ?? "");
+    setPPrinciples((profile?.principles ?? []).join("\n"));
+    setEditingProfile(true);
+  };
+
+  const saveProfile = async () => {
+    const principles = pPrinciples
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const res = await apiRequest("/api/career/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        north_star: pNorth.trim() || null,
+        track: pTrack || null,
+        rationale: pRationale.trim() || null,
+        principles,
+      }),
+    });
+    if (!res.ok) {
+      toast.error("Erro ao salvar o plano");
+      return;
+    }
+    toast.success("Plano de carreira atualizado!");
+    setEditingProfile(false);
+    fetchAll();
+  };
+
   return (
     <main
       className="flex flex-col min-h-screen px-8 py-8 lg:py-4"
@@ -154,13 +194,25 @@ export default function CareerPage() {
               <p className="text-xs uppercase tracking-wide text-[var(--plan-card-text)]">
                 Norte estratégico
               </p>
-              <p className="text-lg font-semibold">{profile.north_star}</p>
+              {!editingProfile && (
+                <p className="text-lg font-semibold">
+                  {profile.north_star || "Defina o seu objetivo de carreira"}
+                </p>
+              )}
             </div>
-            <div className="text-right">
-              <p className="text-xs text-[var(--plan-card-text)]">
-                Conclusão do plano
-              </p>
-              <p className="text-2xl font-bold text-cyan-500">{progress}%</p>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-xs text-[var(--plan-card-text)]">Conclusão</p>
+                <p className="text-2xl font-bold text-cyan-500">{progress}%</p>
+              </div>
+              {!editingProfile && (
+                <button
+                  onClick={startEditProfile}
+                  className="flex items-center gap-1 text-sm text-cyan-500 hover:opacity-80"
+                >
+                  <Pencil className="w-4 h-4" /> Editar
+                </button>
+              )}
             </div>
           </div>
 
@@ -174,23 +226,82 @@ export default function CareerPage() {
             />
           </div>
 
-          {profile.rationale && (
-            <p className="text-sm text-[var(--plan-card-text)] mt-4">
-              {profile.rationale}
-            </p>
-          )}
-
-          {profile.principles?.length > 0 && (
-            <div className="mt-4">
-              <p className="text-sm font-semibold mb-1">
-                Princípios para acelerar
-              </p>
-              <ul className="list-disc list-inside space-y-1 text-sm text-[var(--plan-card-text)]">
-                {profile.principles.map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ul>
+          {editingProfile ? (
+            <div className="mt-4 space-y-3">
+              <div>
+                <Label>Norte estratégico</Label>
+                <Input
+                  value={pNorth}
+                  onChange={(e) => setPNorth(e.target.value)}
+                  placeholder="Ex: Tornar-me Tech Lead em 3 anos"
+                />
+              </div>
+              <div>
+                <Label>Trilha</Label>
+                <select
+                  value={pTrack}
+                  onChange={(e) =>
+                    setPTrack(e.target.value as "" | "technical" | "product")
+                  }
+                  className="w-full bg-[var(--card-bg)] border rounded px-3 py-2"
+                  style={{ borderColor: "var(--card-border)", color: "var(--card-text)" }}
+                >
+                  <option value="">Indefinida</option>
+                  <option value="technical">Técnica</option>
+                  <option value="product">Produto</option>
+                </select>
+              </div>
+              <div>
+                <Label>Justificativa (por quê)</Label>
+                <Textarea
+                  value={pRationale}
+                  onChange={(e) => setPRationale(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>Princípios (um por linha)</Label>
+                <Textarea
+                  value={pPrinciples}
+                  onChange={(e) => setPPrinciples(e.target.value)}
+                  rows={5}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setEditingProfile(false)}
+                  className="px-4 py-2 rounded-md bg-[#1F2937] text-white hover:bg-[#374151]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveProfile}
+                  className="px-4 py-2 rounded-md bg-cyan-600 text-white hover:bg-cyan-500"
+                >
+                  Salvar
+                </button>
+              </div>
             </div>
+          ) : (
+            <>
+              {profile.rationale && (
+                <p className="text-sm text-[var(--plan-card-text)] mt-4">
+                  {profile.rationale}
+                </p>
+              )}
+
+              {profile.principles?.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-sm font-semibold mb-1">
+                    Princípios para acelerar
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-[var(--plan-card-text)]">
+                    {profile.principles.map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}

@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt'
 import { and, eq } from 'drizzle-orm'
 import db from '@/server/db/drizzle'
 import { users, inviteCodes } from '@/server/db/schema'
+import { createToken, setAuthCookie, setAuthFlagCookie } from '@/server/lib/auth'
 import { generateResetToken, sendVerificationEmail } from '@/server/services/emailService'
 
 async function markInviteCodeAsUsed(code: string, userId: number): Promise<boolean> {
@@ -87,26 +88,29 @@ export async function POST(request: NextRequest) {
 
     await markInviteCodeAsUsed(inviteCode.toUpperCase(), user.id)
 
-    // Envio do e-mail é best-effort: se falhar, a conta existe e o usuário pode
-    // pedir reenvio. Não bloqueia o cadastro.
-    let emailSent = true
+    // Envio do e-mail de confirmação é best-effort (verificação é opcional).
     try {
       await sendVerificationEmail(user.email, verificationToken, user.nome)
     } catch {
-      emailSent = false
+      // Ignora falha de e-mail — não bloqueia o acesso.
     }
 
-    // Sem auto-login: o usuário precisa confirmar o e-mail antes de entrar.
-    return NextResponse.json(
+    // Verificação opcional: loga o usuário direto após o cadastro.
+    const token = createToken({ id: user.id, nome: user.nome, email: user.email })
+
+    const response = NextResponse.json(
       {
         success: true,
-        message: emailSent
-          ? 'Conta criada! Enviamos um link de confirmação para o seu e-mail.'
-          : 'Conta criada, mas não conseguimos enviar o e-mail de confirmação. Use "reenviar confirmação".',
-        data: { email: user.email, emailSent },
+        message: 'Usuário registrado com sucesso',
+        data: { user, token },
       },
       { status: 201 }
     )
+
+    setAuthCookie(response, token)
+    setAuthFlagCookie(response)
+
+    return response
   } catch {
     return NextResponse.json({ success: false, error: 'Erro ao registrar usuário.' }, { status: 500 })
   }

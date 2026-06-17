@@ -53,12 +53,8 @@ export default function Signup() {
       const response = await register({ nome, email, senha, inviteCode });
 
       if (response.success) {
-        toast.success(
-          response.message || "Conta criada! Confirme seu e-mail para entrar.",
-          { duration: 6000 }
-        );
-        // Sem auto-login: precisa confirmar o e-mail antes de acessar.
-        router.push(`/login?pending=${encodeURIComponent(email)}`);
+        toast.success("Cadastro realizado com sucesso!");
+        router.push("/manual");
       } else {
         toast.error(response.message || "Não foi possível criar sua conta");
       }
