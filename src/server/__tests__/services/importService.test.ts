@@ -118,14 +118,16 @@ describe('ImportService dedupe', () => {
 })
 
 describe('ImportService — limite semanal de PDF', () => {
-  it('bloqueia (429) um segundo PDF na mesma semana', async () => {
-    // Simula um PDF já importado hoje.
-    await db.insert(schema.importBatches).values({
-      user_id: USER_ID,
-      source: 'extrato.pdf',
-      format: 'pdf',
-      status: 'pending',
-    })
+  it('bloqueia (429) quando atinge o limite semanal de PDF', async () => {
+    // Simula o limite (default 10) já atingido nesta semana.
+    await db.insert(schema.importBatches).values(
+      Array.from({ length: 10 }, () => ({
+        user_id: USER_ID,
+        source: 'extrato.pdf',
+        format: 'pdf',
+        status: 'pending',
+      }))
+    )
 
     await expect(
       ImportService.createImport({

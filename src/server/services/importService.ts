@@ -21,8 +21,9 @@ import type { ParsedTransaction } from '@/server/utils/import/types'
 type ImportFormat = 'ofx' | 'pdf'
 type TxType = 'expense' | 'income'
 
-// Importação por PDF é limitada a 1x por semana por usuário (usa IA).
-const PDF_WEEKLY_LIMIT = 1
+// Importação por PDF é limitada por semana por usuário (usa IA).
+// Configurável via env (PDF_WEEKLY_LIMIT); default 10 para facilitar testes.
+const PDF_WEEKLY_LIMIT = Number(process.env.PDF_WEEKLY_LIMIT) || 10
 
 interface CreateImportInput {
   userId: number
