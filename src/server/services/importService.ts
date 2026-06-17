@@ -177,6 +177,24 @@ export class ImportService {
     return { batch, transactions: transactions.map((t) => ({ ...t, amount: Number(t.amount) })) }
   }
 
+  // Descarta um lote pendente (e suas transações) — usado pelo botão "Descartar".
+  static async discardBatch(batchId: number, userId: number) {
+    const [batch] = await db
+      .select()
+      .from(importBatches)
+      .where(and(eq(importBatches.id, batchId), eq(importBatches.user_id, userId)))
+      .limit(1)
+
+    if (!batch) throw createErrorResponse('Importação não encontrada.', 404)
+
+    await db.transaction(async (tx) => {
+      await tx.delete(importedTransactions).where(eq(importedTransactions.batch_id, batchId))
+      await tx.delete(importBatches).where(eq(importBatches.id, batchId))
+    })
+
+    return { message: 'Importação descartada.' }
+  }
+
   static async listBatches(userId: number, limit = 10) {
     return db
       .select()

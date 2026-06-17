@@ -59,9 +59,31 @@ export default function ImportPage() {
     }
   }, []);
 
+  // Restaura o último lote pendente (não perde o import ao dar F5).
+  const restorePendingBatch = useCallback(async () => {
+    try {
+      const res = await apiRequest("/api/imports");
+      if (!res.ok) return;
+      const data = await res.json();
+      const pending = (data.data ?? []).find(
+        (b: { id: number; status: string }) => b.status === "pending"
+      );
+      if (!pending) return;
+
+      const detail = await apiRequest(`/api/imports/${pending.id}`);
+      if (!detail.ok) return;
+      const detailData = await detail.json();
+      setBatchId(pending.id);
+      setTxs(detailData.data?.transactions ?? []);
+    } catch {
+      /* silencioso */
+    }
+  }, []);
+
   useEffect(() => {
     fetchCategories();
-  }, [fetchCategories]);
+    restorePendingBatch();
+  }, [fetchCategories, restorePendingBatch]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -129,6 +151,19 @@ export default function ImportPage() {
     }
   };
 
+  const discardImport = async () => {
+    if (!batchId) return;
+    if (!confirm("Descartar esta importação? As transações ainda não confirmadas serão perdidas.")) return;
+    const res = await apiRequest(`/api/imports/${batchId}`, { method: "DELETE" });
+    if (!res.ok) {
+      toast.error("Erro ao descartar importação.");
+      return;
+    }
+    toast.success("Importação descartada.");
+    setBatchId(null);
+    setTxs([]);
+  };
+
   const pendingCount = txs.filter((t) => t.status === "pending").length;
 
   return (
@@ -171,14 +206,22 @@ export default function ImportPage() {
             <h2 className="text-lg font-semibold text-[var(--card-text)] flex items-center gap-2">
               <FileText className="w-5 h-5" /> Revisar {txs.length} transações
             </h2>
-            <button
-              onClick={confirmImport}
-              disabled={confirming || pendingCount === 0}
-              className="flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-500 disabled:opacity-50"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Confirmar {pendingCount} lançamentos
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={discardImport}
+                className="px-4 py-2 rounded-md bg-[#1F2937] text-white hover:bg-[#374151]"
+              >
+                Descartar
+              </button>
+              <button
+                onClick={confirmImport}
+                disabled={confirming || pendingCount === 0}
+                className="flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-500 disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Confirmar {pendingCount} lançamentos
+              </button>
+            </div>
           </div>
 
           <div className="space-y-3">

@@ -157,6 +157,34 @@ describe('ImportService — limite semanal de PDF', () => {
   })
 })
 
+describe('ImportService.discardBatch', () => {
+  it('apaga o lote pendente e suas transações', async () => {
+    const { batch } = await ImportService.createImport({
+      userId: USER_ID,
+      source: 'e.ofx',
+      format: 'ofx',
+      ofxText: OFX,
+    })
+
+    await ImportService.discardBatch(batch.id, USER_ID)
+
+    const batches = await db
+      .select()
+      .from(schema.importBatches)
+      .where(eq(schema.importBatches.id, batch.id))
+    const txs = await db
+      .select()
+      .from(schema.importedTransactions)
+      .where(eq(schema.importedTransactions.batch_id, batch.id))
+    expect(batches).toHaveLength(0)
+    expect(txs).toHaveLength(0)
+  })
+
+  it('404 para lote inexistente', async () => {
+    await expect(ImportService.discardBatch(999, USER_ID)).rejects.toMatchObject({ status: 404 })
+  })
+})
+
 describe('ImportService.updateTransaction', () => {
   it('atualiza tipo, categoria e status de inclusão', async () => {
     const { transactions } = await ImportService.createImport({
