@@ -170,103 +170,97 @@ export default function ImportPage() {
             </button>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--card-border)" }}>
-            <table className="w-full text-sm" style={{ color: "var(--card-text)" }}>
-              <thead>
-                <tr className="text-left text-[var(--plan-card-text)] border-b" style={{ borderColor: "var(--card-border)" }}>
-                  <th className="p-3">Data</th>
-                  <th className="p-3">Descrição</th>
-                  <th className="p-3">Tipo</th>
-                  <th className="p-3">Categoria</th>
-                  <th className="p-3 text-right">Valor</th>
-                  <th className="p-3 text-center">Incluir</th>
-                </tr>
-              </thead>
-              <tbody>
-                {txs.map((t) => {
-                  const opts = categories.filter((c) =>
-                    t.type === "income" ? c.tipo === "receita" : c.tipo === "despesa"
-                  );
-                  const isDup = t.status === "duplicate";
-                  const included = t.status === "pending";
-                  return (
-                    <tr
-                      key={t.id}
-                      className="border-b"
-                      style={{
-                        borderColor: "var(--card-border)",
-                        opacity: included ? 1 : 0.5,
-                      }}
-                    >
-                      <td className="p-3 whitespace-nowrap">
+          <div className="space-y-3">
+            {txs.map((t) => {
+              const opts = categories.filter((c) =>
+                t.type === "income" ? c.tipo === "receita" : c.tipo === "despesa"
+              );
+              const isDup = t.status === "duplicate";
+              const included = t.status === "pending";
+              return (
+                <div
+                  key={t.id}
+                  className="rounded-xl border p-4"
+                  style={{
+                    backgroundColor: "var(--card-bg)",
+                    borderColor: "var(--card-border)",
+                    color: "var(--card-text)",
+                    opacity: included ? 1 : 0.55,
+                  }}
+                >
+                  {/* Descrição + valor */}
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium break-words">{t.description}</p>
+                      <p className="text-xs text-[var(--plan-card-text)] mt-0.5">
                         {new Date(`${t.date.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR")}
-                      </td>
-                      <td className="p-3">
-                        {t.description}
                         {isDup && (
                           <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-600">
                             duplicada
                           </span>
                         )}
-                      </td>
-                      <td className="p-3">
-                        <select
-                          value={t.type}
-                          onChange={(e) =>
-                            patchTx(t.id, {
-                              type: e.target.value as "expense" | "income",
-                              category_id: null,
-                            })
-                          }
-                          className="bg-[var(--card-bg)] border rounded px-2 py-1"
-                          style={{ borderColor: "var(--card-border)" }}
-                        >
-                          <option value="expense">Despesa</option>
-                          <option value="income">Receita</option>
-                        </select>
-                      </td>
-                      <td className="p-3">
-                        <select
-                          value={t.category_id ?? ""}
-                          onChange={(e) =>
-                            patchTx(t.id, {
-                              category_id: e.target.value ? Number(e.target.value) : null,
-                            })
-                          }
-                          className="bg-[var(--card-bg)] border rounded px-2 py-1 max-w-[160px]"
-                          style={{ borderColor: "var(--card-border)" }}
-                        >
-                          <option value="">Sem categoria</option>
-                          {opts.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.nome}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td
-                        className={`p-3 text-right font-medium ${
-                          t.type === "income" ? "text-green-500" : "text-red-400"
-                        }`}
-                      >
-                        {t.type === "income" ? "+" : "-"}
-                        {formatCurrency(t.amount)}
-                      </td>
-                      <td className="p-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={included}
-                          onChange={(e) =>
-                            patchTx(t.id, { status: e.target.checked ? "pending" : "skipped" })
-                          }
-                          className="accent-green-600 w-4 h-4 cursor-pointer"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </p>
+                    </div>
+                    <p
+                      className={`font-semibold whitespace-nowrap ${
+                        t.type === "income" ? "text-green-500" : "text-red-400"
+                      }`}
+                    >
+                      {t.type === "income" ? "+" : "-"}
+                      {formatCurrency(t.amount)}
+                    </p>
+                  </div>
+
+                  {/* Controles: tipo, categoria, incluir */}
+                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                    <select
+                      value={t.type}
+                      onChange={(e) =>
+                        patchTx(t.id, {
+                          type: e.target.value as "expense" | "income",
+                          category_id: null,
+                        })
+                      }
+                      className="flex-1 min-w-[110px] bg-[var(--card-bg)] border rounded px-2 py-1.5 text-sm"
+                      style={{ borderColor: "var(--card-border)" }}
+                    >
+                      <option value="expense">Despesa</option>
+                      <option value="income">Receita</option>
+                    </select>
+
+                    <select
+                      value={t.category_id ?? ""}
+                      onChange={(e) =>
+                        patchTx(t.id, {
+                          category_id: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }
+                      className="flex-1 min-w-[120px] bg-[var(--card-bg)] border rounded px-2 py-1.5 text-sm"
+                      style={{ borderColor: "var(--card-border)" }}
+                    >
+                      <option value="">Sem categoria</option>
+                      {opts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label className="flex items-center gap-2 text-sm whitespace-nowrap cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={included}
+                        onChange={(e) =>
+                          patchTx(t.id, { status: e.target.checked ? "pending" : "skipped" })
+                        }
+                        className="accent-green-600 w-4 h-4 cursor-pointer"
+                      />
+                      Incluir
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

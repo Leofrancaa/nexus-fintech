@@ -449,11 +449,11 @@ export default function ConfiguracoesPage() {
               {inviteCodes.map((code) => (
                 <div
                   key={code.id}
-                  className="flex items-center justify-between p-4 bg-[var(--page-bg)] rounded-lg border border-[var(--card-border)]"
+                  className="flex items-center justify-between gap-3 p-4 bg-[var(--page-bg)] rounded-lg border border-[var(--card-border)]"
                 >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <code className="text-lg font-mono font-bold text-[#3B82F6]">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <code className="text-lg font-mono font-bold text-[#3B82F6] break-all">
                         {code.code}
                       </code>
                       {code.is_used ? (
@@ -467,7 +467,7 @@ export default function ConfiguracoesPage() {
                       )}
                     </div>
                     {code.is_used && code.used_by_name && (
-                      <p className="text-sm text-[var(--foreground)]/60 mt-1">
+                      <p className="text-sm text-[var(--foreground)]/60 mt-1 break-words">
                         Usado por: {code.used_by_name} ({code.used_by_email}) em{" "}
                         {formatDate(code.used_at!)}
                       </p>
@@ -478,7 +478,7 @@ export default function ConfiguracoesPage() {
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 shrink-0">
                     <button
                       onClick={() => handleCopyCode(code.code)}
                       className="p-2 hover:bg-[var(--hover-bg)] rounded transition-colors"
