@@ -93,16 +93,22 @@ export class ChatService {
       .limit(10)
 
     // Histórico compacto dos últimos 6 meses (para perguntas sobre meses anteriores).
+    // Exclui meses FUTUROS — despesas fixas são replicadas adiante no ano e não
+    // representam gasto realizado ("até então").
     const historyRows = await db.execute(sql`
       SELECT y, m, SUM(income) AS income, SUM(expense) AS expense
       FROM (
         SELECT EXTRACT(YEAR FROM data)::int AS y, EXTRACT(MONTH FROM data)::int AS m,
                quantidade AS income, 0 AS expense
-          FROM incomes WHERE user_id = ${userId}
+          FROM incomes
+          WHERE user_id = ${userId}
+            AND data < date_trunc('month', CURRENT_DATE) + interval '1 month'
         UNION ALL
         SELECT EXTRACT(YEAR FROM data)::int AS y, EXTRACT(MONTH FROM data)::int AS m,
                0 AS income, quantidade AS expense
-          FROM expenses WHERE user_id = ${userId}
+          FROM expenses
+          WHERE user_id = ${userId}
+            AND data < date_trunc('month', CURRENT_DATE) + interval '1 month'
       ) t
       GROUP BY y, m
       ORDER BY y DESC, m DESC
