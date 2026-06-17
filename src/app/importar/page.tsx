@@ -2,8 +2,17 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, CheckCircle2, FileText } from "lucide-react";
+import { Upload, CheckCircle2, FileText, Plus } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
 import PageTitle from "@/components/pageTitle";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { NewCategoryForm } from "@/components/forms/newCategoryForm";
 import { apiRequest, isAuthenticated } from "@/lib/auth";
 import { formatCurrency } from "@/utils/format";
 import { toast } from "react-hot-toast";
@@ -31,6 +40,8 @@ export default function ImportPage() {
   const [txs, setTxs] = useState<ImportedTx[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // Id da transação cuja criação de categoria está aberta (modal inline)
+  const [categoryModalFor, setCategoryModalFor] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) router.push("/login");
@@ -211,42 +222,62 @@ export default function ImportPage() {
                     </p>
                   </div>
 
-                  {/* Controles: tipo, categoria, incluir */}
-                  <div className="flex flex-wrap items-center gap-2 mt-3">
-                    <select
-                      value={t.type}
-                      onChange={(e) =>
-                        patchTx(t.id, {
-                          type: e.target.value as "expense" | "income",
-                          category_id: null,
-                        })
-                      }
-                      className="flex-1 min-w-[110px] bg-[var(--card-bg)] border rounded px-2 py-1.5 text-sm"
-                      style={{ borderColor: "var(--card-border)" }}
-                    >
-                      <option value="expense">Despesa</option>
-                      <option value="income">Receita</option>
-                    </select>
+                  {/* Controles: tipo, categoria (+ criar), incluir */}
+                  <div className="mt-3 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Select
+                        value={t.type}
+                        onValueChange={(v) =>
+                          patchTx(t.id, {
+                            type: v as "expense" | "income",
+                            category_id: null,
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="expense">Despesa</SelectItem>
+                          <SelectItem value="income">Receita</SelectItem>
+                        </SelectContent>
+                      </Select>
 
-                    <select
-                      value={t.category_id ?? ""}
-                      onChange={(e) =>
-                        patchTx(t.id, {
-                          category_id: e.target.value ? Number(e.target.value) : null,
-                        })
-                      }
-                      className="flex-1 min-w-[120px] bg-[var(--card-bg)] border rounded px-2 py-1.5 text-sm"
-                      style={{ borderColor: "var(--card-border)" }}
-                    >
-                      <option value="">Sem categoria</option>
-                      {opts.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nome}
-                        </option>
-                      ))}
-                    </select>
+                      <div className="flex gap-2">
+                        <div className="flex-1 min-w-0">
+                          <Select
+                            value={t.category_id ? String(t.category_id) : ""}
+                            onValueChange={(v) =>
+                              patchTx(t.id, {
+                                category_id: v === "none" ? null : Number(v),
+                              })
+                            }
+                          >
+                            <SelectTrigger className="h-11">
+                              <SelectValue placeholder="Categoria" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Sem categoria</SelectItem>
+                              {opts.map((c) => (
+                                <SelectItem key={c.id} value={String(c.id)}>
+                                  {c.nome}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCategoryModalFor(t.id)}
+                          title="Criar nova categoria"
+                          className="shrink-0 px-3 h-11 rounded-xl bg-[#00D4D4] hover:opacity-80 text-white font-bold text-lg transition-all"
+                        >
+                          <Plus className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
 
-                    <label className="flex items-center gap-2 text-sm whitespace-nowrap cursor-pointer">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input
                         type="checkbox"
                         checked={included}
@@ -255,7 +286,7 @@ export default function ImportPage() {
                         }
                         className="accent-green-600 w-4 h-4 cursor-pointer"
                       />
-                      Incluir
+                      Incluir neste lançamento
                     </label>
                   </div>
                 </div>
@@ -264,6 +295,46 @@ export default function ImportPage() {
           </div>
         </section>
       )}
+
+      {/* Criar categoria inline (sem sair da página) */}
+      <Dialog.Root
+        open={categoryModalFor !== null}
+        onOpenChange={(open) => !open && setCategoryModalFor(null)}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
+          <Dialog.Content className="fixed z-[60] top-1/2 left-1/2 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[#111] border border-[#333] p-6 shadow-lg focus:outline-none max-h-[90dvh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <Dialog.Title className="text-xl font-semibold text-white">
+                Nova Categoria
+              </Dialog.Title>
+              <Dialog.Close asChild>
+                <button className="text-white hover:text-gray-300 cursor-pointer">✕</button>
+              </Dialog.Close>
+            </div>
+            <NewCategoryForm
+              defaultTipo={
+                txs.find((t) => t.id === categoryModalFor)?.type === "income"
+                  ? "receita"
+                  : "despesa"
+              }
+              onClose={() => setCategoryModalFor(null)}
+              onCreated={async (newCategory) => {
+                const txId = categoryModalFor;
+                await fetchCategories();
+                if (txId !== null) {
+                  // Alinha o tipo da transação ao da categoria criada e seleciona-a.
+                  patchTx(txId, {
+                    type: newCategory.tipo === "receita" ? "income" : "expense",
+                    category_id: newCategory.id,
+                  });
+                }
+                setCategoryModalFor(null);
+              }}
+            />
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </main>
   );
 }

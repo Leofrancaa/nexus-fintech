@@ -63,12 +63,13 @@ const cores = [
 interface NewCategoryFormProps {
   onClose: () => void;
   onCreated?: (categoria: Categoria) => void;
+  defaultTipo?: "despesa" | "receita";
 }
 
-export function NewCategoryForm({ onClose, onCreated }: NewCategoryFormProps) {
+export function NewCategoryForm({ onClose, onCreated, defaultTipo }: NewCategoryFormProps) {
   const [nome, setNome] = useState("");
   const [corSelecionada, setCorSelecionada] = useState("");
-  const [tipo, setTipo] = useState<"despesa" | "receita">("despesa");
+  const [tipo, setTipo] = useState<"despesa" | "receita">(defaultTipo ?? "despesa");
   const [parentId, setParentId] = useState<number | null>(null);
   const [categoriasPai, setCategoriasPai] = useState<Categoria[]>([]);
 
