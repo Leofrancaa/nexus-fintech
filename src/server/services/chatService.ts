@@ -92,6 +92,29 @@ export class ChatService {
       .where(eq(plans.user_id, userId))
       .limit(10)
 
+    // Histórico compacto dos últimos 6 meses (para perguntas sobre meses anteriores).
+    const historyRows = await db.execute(sql`
+      SELECT y, m, SUM(income) AS income, SUM(expense) AS expense
+      FROM (
+        SELECT EXTRACT(YEAR FROM data)::int AS y, EXTRACT(MONTH FROM data)::int AS m,
+               quantidade AS income, 0 AS expense
+          FROM incomes WHERE user_id = ${userId}
+        UNION ALL
+        SELECT EXTRACT(YEAR FROM data)::int AS y, EXTRACT(MONTH FROM data)::int AS m,
+               0 AS income, quantidade AS expense
+          FROM expenses WHERE user_id = ${userId}
+      ) t
+      GROUP BY y, m
+      ORDER BY y DESC, m DESC
+      LIMIT 6
+    `)
+    const monthly = historyRows.rows as Array<{
+      y: number
+      m: number
+      income: string
+      expense: string
+    }>
+
     const mesNome = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 
     const lines: string[] = [
@@ -104,6 +127,17 @@ export class ChatService {
 
     if (biggest) {
       lines.push(`Maior despesa do mês: ${biggest.tipo} — ${formatCurrency(Number(biggest.quantidade))}.`)
+    }
+
+    if (monthly.length > 0) {
+      const hist = monthly
+        .map((r) => {
+          const inc = Number(r.income)
+          const exp = Number(r.expense)
+          return `${String(r.m).padStart(2, '0')}/${r.y}: receitas ${formatCurrency(inc)}, despesas ${formatCurrency(exp)}, saldo ${formatCurrency(inc - exp)}`
+        })
+        .join('\n')
+      lines.push(`Histórico mensal (últimos 6 meses):\n${hist}`)
     }
 
     if (topCategorias.length > 0) {

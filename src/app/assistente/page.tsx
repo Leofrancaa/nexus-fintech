@@ -20,6 +20,9 @@ const SUGGESTIONS = [
   "Como estão meus planos de investimento?",
 ];
 
+// Deve casar com MAX_MESSAGE_LENGTH no chatService (servidor).
+const MAX_LEN = 500;
+
 export default function AssistantPage() {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -169,17 +172,27 @@ export default function AssistantPage() {
             e.preventDefault();
             send(input);
           }}
-          className="flex gap-2 p-3 border-t"
+          className="flex items-start gap-2 p-3 border-t"
           style={{ borderColor: "var(--card-border)" }}
         >
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={remaining > 0 ? "Digite sua pergunta..." : "Limite diário atingido"}
-            disabled={remaining <= 0 || sending}
-            className="flex-1 rounded-lg px-3 py-2 bg-[var(--page-bg)] border outline-none disabled:opacity-50"
-            style={{ borderColor: "var(--card-border)", color: "var(--card-text)" }}
-          />
+          <div className="flex-1">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value.slice(0, MAX_LEN))}
+              maxLength={MAX_LEN}
+              placeholder={remaining > 0 ? "Digite sua pergunta..." : "Limite diário atingido"}
+              disabled={remaining <= 0 || sending}
+              className="w-full rounded-lg px-3 py-2 bg-[var(--page-bg)] border outline-none disabled:opacity-50"
+              style={{ borderColor: "var(--card-border)", color: "var(--card-text)" }}
+            />
+            <div
+              className={`text-[10px] text-right mt-1 ${
+                input.length >= MAX_LEN ? "text-red-400" : "text-[var(--plan-card-text)]"
+              }`}
+            >
+              {input.length}/{MAX_LEN}
+            </div>
+          </div>
           <button
             type="submit"
             disabled={remaining <= 0 || sending || !input.trim()}
