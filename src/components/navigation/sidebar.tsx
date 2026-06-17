@@ -169,7 +169,7 @@ export function Sidebar() {
             </div>
           )}
 
-          <nav className="flex flex-col gap-2 px-2">
+          <nav className="flex flex-col gap-2 px-2 flex-1 overflow-y-auto min-h-0">
             {navItems.map(({ name, href, icon: Icon }) => {
               const isActive = pathname === href;
               return (
@@ -211,8 +211,8 @@ export function Sidebar() {
 
       {/* Mobile */}
       {isMobileOpen && (
-        <div className="fixed top-0 left-0 z-40 h-full w-full shadow-lg transition-transform duration-300 lg:hidden bg-[var(--background)] text-[var(--foreground)]">
-          <div className="flex justify-end p-4">
+        <div className="fixed top-0 left-0 z-40 h-full w-full shadow-lg transition-transform duration-300 lg:hidden bg-[var(--background)] text-[var(--foreground)] flex flex-col overflow-hidden">
+          <div className="flex justify-end p-4 shrink-0">
             <button
               onClick={toggleMobile}
               className="hover:opacity-70 text-[var(--foreground)]"
@@ -221,6 +221,8 @@ export function Sidebar() {
             </button>
           </div>
 
+          {/* Corpo rolável — garante acesso a todos os itens + toggle em telas baixas */}
+          <div className="flex-1 overflow-y-auto pb-10">
           <div className="flex justify-center py-4">
             <div className="w-[100px]">
               <Image
@@ -293,10 +295,11 @@ export function Sidebar() {
             })}
           </nav>
 
-          <div className="px-4 mt-6">
+          <div className="px-4 mt-6 mb-6">
             <div className="flex justify-center">
               <ThemeToggle />
             </div>
+          </div>
           </div>
         </div>
       )}
